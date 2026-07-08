@@ -4,6 +4,7 @@ services:
     command: ["--config", "/app/config.yaml"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_LICENSE: ${LITELLM_LICENSE:-}
       AWS_REGION: ${AWS_REGION:-eu-north-1}
     volumes:
       - ./config.yaml:/app/config.yaml:ro

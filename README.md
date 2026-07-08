@@ -49,6 +49,13 @@ cp .env.example .env
 # edit .env: set DOMAIN, generate LITELLM_MASTER_KEY, confirm AWS_REGION
 ```
 
+The optional `LITELLM_LICENSE` (enterprise features) is stored in AWS Secrets Manager, not in git. Pull it into `.env` at deploy time:
+
+```bash
+aws secretsmanager get-secret-value --region eu-north-1 \
+  --secret-id litellm-gateway/LITELLM_LICENSE --query SecretString --output text
+```
+
 Generate a strong master key:
 
 ```bash

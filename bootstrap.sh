@@ -25,6 +25,31 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# Domain-free deployment: if DOMAIN is unset or left at the placeholder, derive a
+# magic-DNS hostname (<public-ip>.sslip.io) from the instance's public IP. sslip.io
+# resolves it to the IP so Caddy can still obtain a real Let's Encrypt certificate —
+# no domain purchase or DNS provider required.
+DOMAIN="$(grep -E '^DOMAIN=' .env | head -n1 | cut -d= -f2- | tr -d '[:space:]')"
+if [ -z "${DOMAIN}" ] || [ "${DOMAIN}" = "llm.example.com" ]; then
+  TOKEN="$(curl -sf -X PUT 'http://169.254.169.254/latest/api/token' \
+    -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' || true)"
+  PUBLIC_IP="$(curl -sf -H "X-aws-ec2-metadata-token: ${TOKEN}" \
+    http://169.254.169.254/latest/meta-data/public-ipv4 || true)"
+  if [ -n "${PUBLIC_IP}" ]; then
+    DOMAIN="${PUBLIC_IP}.sslip.io"
+    if grep -q '^DOMAIN=' .env; then
+      sed -i "s|^DOMAIN=.*|DOMAIN=${DOMAIN}|" .env
+    else
+      echo "DOMAIN=${DOMAIN}" >> .env
+    fi
+    echo "No domain set — using magic-DNS hostname: ${DOMAIN}"
+  else
+    echo "ERROR: DOMAIN is unset and no public IP was found via instance metadata." >&2
+    echo "Set DOMAIN in .env manually (a hostname that resolves to this box)." >&2
+    exit 1
+  fi
+fi
+
 echo "Starting gateway..."
 docker compose pull
 docker compose up -d

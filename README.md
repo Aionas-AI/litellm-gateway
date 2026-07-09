@@ -1,20 +1,21 @@
 # LiteLLM Gateway
 
-A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that exposes an OpenAI-compatible HTTPS endpoint in front of AWS Bedrock. Runs as two containers (LiteLLM + Caddy for auto-TLS) on a single free-tier EC2 instance.
+A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that exposes an OpenAI-compatible HTTPS endpoint in front of AWS Bedrock. Runs as two containers (LiteLLM + Caddy for auto-TLS) on a single small EC2 instance.
 
 ## Features
 
 - OpenAI-compatible `/v1/chat/completions` API in front of AWS Bedrock (Claude)
 - Stateless: no database — a single master key is the entire auth model
 - Automatic HTTPS via Caddy + Let's Encrypt
+- **No domain required** — `bootstrap.sh` auto-derives a `<public-ip>.sslip.io` hostname that resolves to the box, so you get a real Let's Encrypt cert with no domain purchase (or bring your own domain)
 - Bedrock access via the EC2 instance IAM role — no AWS keys stored anywhere
-- Runs on a `t3.micro` (AWS free tier, 750 hrs/mo for 12 months)
+- Runs on a small EC2 box (**≥ 2 GB RAM** — a 1 GB `t3.micro` is too small to pull/run the image; use `t3.small` or larger)
 
 ## Architecture
 
 ```
-client ──HTTPS──> [ EC2 t3.micro ]
-                   ├── Caddy   :443  (auto Let's Encrypt TLS)
+client ──HTTPS──> [ EC2 t3.small+ ]
+                   ├── Caddy   :443  (auto Let's Encrypt TLS, via sslip.io or your domain)
                    └── litellm :4000 (stateless)
                          └── Bedrock (via IAM instance role)
 ```
@@ -37,16 +38,17 @@ curl https://llm.example.com/v1/chat/completions \
 
 ### 1. Prerequisites
 
-- An EC2 `t3.micro` running Amazon Linux 2023
+- An EC2 instance running Amazon Linux 2023 with **≥ 2 GB RAM** (`t3.small` or larger; a `t3.micro` will OOM)
 - An **IAM instance role** attached with the policy in `iam-policy-bedrock.json`
-- A **domain/subdomain** with an A record pointing at the instance's public IP
-- Security group: allow `443` (and `80` for the ACME challenge) from the internet, `22` from your IP only
+- Security group: allow `443` and `80` (ACME challenge) from the internet
+- **A domain is optional** — leave `DOMAIN` blank to auto-use `<public-ip>.sslip.io`. To use your own, point an A record at the box's public IP.
 
 ### 2. Configure
 
 ```bash
 cp .env.example .env
-# edit .env: set DOMAIN, generate LITELLM_MASTER_KEY, confirm AWS_REGION
+# edit .env: generate LITELLM_MASTER_KEY, confirm AWS_REGION.
+# Leave DOMAIN blank for a domain-free sslip.io hostname, or set your own.
 ```
 
 The optional `LITELLM_LICENSE` (enterprise features) is stored in AWS Secrets Manager, not in git. Pull it into `.env` at deploy time:
@@ -78,7 +80,7 @@ docker compose ps
 | `Caddyfile` | Reverse proxy + auto-TLS for `$DOMAIN` |
 | `.env.example` | Template for `DOMAIN`, `LITELLM_MASTER_KEY`, `AWS_REGION` |
 | `iam-policy-bedrock.json` | IAM policy for the EC2 instance role (Bedrock invoke) |
-| `bootstrap.sh` | Installs Docker + compose and starts the gateway |
+| `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, and starts the gateway |
 
 ## Adding models
 
@@ -98,8 +100,9 @@ docker compose restart litellm
 
 ## Cost notes
 
-- `t3.micro` is free tier for 12 months (750 hrs/mo).
-- Public IPv4 addresses bill at ~$0.005/hr (~$3.60/mo) even on free-tier instances (AWS pricing since Feb 2024).
+- Needs **≥ 2 GB RAM**, so it runs above the free tier — `t3.small` (~$15/mo) or `t3.medium` (~$30/mo). A 1 GB `t3.micro` (free tier) is too small.
+- Public IPv4 addresses bill at ~$0.005/hr (~$3.60/mo) (AWS pricing since Feb 2024).
+- `sslip.io` is free and needs no account; a real Let's Encrypt cert is still issued.
 - Bedrock model tokens are billed per use — the gateway does not change that.
 
 ## Stack

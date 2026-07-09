@@ -5,7 +5,7 @@ model_list:
       aws_region_name: eu-north-1
   - model_name: claude-opus
     litellm_params:
-      model: bedrock/eu.anthropic.claude-opus-4-8
+      model: bedrock/eu.anthropic.claude-opus-4-6-v1
       aws_region_name: eu-north-1
 
 general_settings:

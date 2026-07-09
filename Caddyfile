@@ -1,3 +1,23 @@
+# API gateway (OpenAI-compatible LiteLLM proxy)
 {$DOMAIN} {
 	reverse_proxy litellm:4000
+}
+
+# Small web chat UI. Static page + a key-injecting proxy so the browser
+# never sees the API key. /api/chat is rewritten to the LiteLLM endpoint
+# with the Authorization header added server-side by Caddy.
+chat.{$DOMAIN} {
+	root * /srv/webchat
+
+	@api path /api/chat
+	handle @api {
+		rewrite * /v1/chat/completions
+		reverse_proxy litellm:4000 {
+			header_up Authorization "Bearer {$WEBCHAT_API_KEY}"
+		}
+	}
+
+	handle {
+		file_server
+	}
 }

@@ -8,6 +8,7 @@ A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that
 - Master key for API auth; Admin UI, virtual keys, budgets, and spend history backed by a bundled Postgres
 - Automatic HTTPS via Caddy + Let's Encrypt
 - **No domain required** — `bootstrap.sh` auto-derives a `<public-ip>.sslip.io` hostname that resolves to the box, so you get a real Let's Encrypt cert with no domain purchase (or bring your own domain)
+- Optional **web chat UI** at `chat.<DOMAIN>` — a static ask-a-question page; Caddy injects the API key server-side so the browser never sees it
 - Bedrock access via the EC2 instance IAM role — no AWS keys stored anywhere
 - Runs on a small EC2 box (**≥ 2 GB RAM** — a 1 GB `t3.micro` is too small to pull/run the image; use `t3.small` or larger)
 
@@ -81,6 +82,7 @@ docker compose ps
 | `.env.example` | Template for `DOMAIN`, `LITELLM_MASTER_KEY`, `POSTGRES_PASSWORD`, `AWS_REGION` |
 | `iam-policy-bedrock.json` | IAM policy for the EC2 instance role (Bedrock invoke) |
 | `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, and starts the gateway |
+| `webchat/index.html` | Small web chat UI served at `chat.<DOMAIN>` |
 
 ## Adding models
 

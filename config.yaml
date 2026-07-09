@@ -3,6 +3,10 @@ model_list:
     litellm_params:
       model: bedrock/eu.anthropic.claude-sonnet-4-6
       aws_region_name: eu-north-1
+  - model_name: claude-opus
+    litellm_params:
+      model: bedrock/eu.anthropic.claude-opus-4-8
+      aws_region_name: eu-north-1
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

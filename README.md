@@ -35,6 +35,10 @@ curl https://llm.example.com/v1/chat/completions \
   }'
 ```
 
+## Connecting clients
+
+See [CLIENTS.md](CLIENTS.md) for how to route a simple UI app, Cursor, and Claude Code through the gateway.
+
 ## Getting started
 
 ### 1. Prerequisites

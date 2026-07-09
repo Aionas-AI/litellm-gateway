@@ -5,7 +5,7 @@ A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that
 ## Features
 
 - OpenAI-compatible `/v1/chat/completions` API in front of AWS Bedrock (Claude)
-- Stateless: no database — a single master key is the entire auth model
+- Master key for API auth; Admin UI, virtual keys, budgets, and spend history backed by a bundled Postgres
 - Automatic HTTPS via Caddy + Let's Encrypt
 - **No domain required** — `bootstrap.sh` auto-derives a `<public-ip>.sslip.io` hostname that resolves to the box, so you get a real Let's Encrypt cert with no domain purchase (or bring your own domain)
 - Bedrock access via the EC2 instance IAM role — no AWS keys stored anywhere
@@ -15,9 +15,9 @@ A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that
 
 ```
 client ──HTTPS──> [ EC2 t3.small+ ]
-                   ├── Caddy   :443  (auto Let's Encrypt TLS, via sslip.io or your domain)
-                   └── litellm :4000 (stateless)
-                         └── Bedrock (via IAM instance role)
+                   ├── Caddy    :443  (auto Let's Encrypt TLS, via sslip.io or your domain)
+                   ├── litellm  :4000 ──── Bedrock (via IAM instance role)
+                   └── postgres :5432 (Admin UI, keys, budgets, spend)
 ```
 
 ## Usage
@@ -76,9 +76,9 @@ docker compose ps
 | File | Purpose |
 | --- | --- |
 | `config.yaml` | LiteLLM model list (Bedrock) + master-key wiring |
-| `docker-compose.yml` | LiteLLM + Caddy services |
+| `docker-compose.yml` | LiteLLM + Caddy + Postgres services |
 | `Caddyfile` | Reverse proxy + auto-TLS for `$DOMAIN` |
-| `.env.example` | Template for `DOMAIN`, `LITELLM_MASTER_KEY`, `AWS_REGION` |
+| `.env.example` | Template for `DOMAIN`, `LITELLM_MASTER_KEY`, `POSTGRES_PASSWORD`, `AWS_REGION` |
 | `iam-policy-bedrock.json` | IAM policy for the EC2 instance role (Bedrock invoke) |
 | `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, and starts the gateway |
 
@@ -109,5 +109,6 @@ docker compose restart litellm
 
 - **Proxy**: LiteLLM (`ghcr.io/berriai/litellm`)
 - **TLS / reverse proxy**: Caddy 2
+- **Database**: Postgres 16 (Admin UI, keys, budgets, spend)
 - **Backend**: AWS Bedrock (Claude)
 - **Host**: EC2 (Amazon Linux 2023) + Docker Compose

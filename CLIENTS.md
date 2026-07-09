@@ -94,6 +94,11 @@ Notes:
   (`claude-opus`, `claude-sonnet`).
 - The custom OpenAI endpoint drives chat. Some Cursor features (Tab, background agents)
   are tied to Cursor's own models and will not route through the gateway.
+- **You need a virtual key** (Step 0) — Cursor requires an API key. Mint a dedicated
+  one (e.g. `key_alias: cursor`) so its spend is tracked and revocable on its own.
+- **The base-URL override is global to Cursor**, not per-project: it applies to every
+  workspace and replaces your normal Cursor model access until you turn it off. Toggle
+  it back off to return to standard Cursor models.
 
 ---
 

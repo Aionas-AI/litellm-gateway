@@ -3,9 +3,12 @@ import { createSecretsManagerTenantKeyStore, TenantKeyStore } from './dal/tenant
 import { createErrorHandler } from './lib/errors';
 import { createLogger, Logger } from './lib/logger';
 import { createDockerReloader, Reloader } from './lib/reloader';
+import { createSessionSigner } from './lib/session';
 import { createAuthMiddleware } from './middleware/auth';
+import { createAuthController } from './controllers/auth.controller';
 import { createConfigController } from './controllers/config.controller';
 import { createTenantKeyController } from './controllers/tenantKey.controller';
+import { createAuthRouter } from './routes/auth.routes';
 import { createConfigRouter } from './routes/config.routes';
 import { createTenantKeyRouter } from './routes/tenantKey.routes';
 import { createConfigService } from './services/config.service';
@@ -16,6 +19,8 @@ export interface AppDeps {
   reloader?: Reloader;
   logger?: Logger;
   adminToken?: string;
+  loginUser?: string;
+  loginPassword?: string;
   baseConfigPath?: string;
   runtimeConfigPath?: string;
 }
@@ -29,6 +34,8 @@ function requireEnv(name: string): string {
 export function createApp(deps: AppDeps = {}) {
   const logger = deps.logger ?? createLogger();
   const adminToken = deps.adminToken ?? requireEnv('KEY_MANAGER_ADMIN_TOKEN');
+  const loginUser = deps.loginUser ?? requireEnv('KEYADMIN_USER');
+  const loginPassword = deps.loginPassword ?? requireEnv('KEYADMIN_PASSWORD');
   const baseConfigPath = deps.baseConfigPath ?? requireEnv('BASE_CONFIG_PATH');
   const runtimeConfigPath = deps.runtimeConfigPath ?? requireEnv('RUNTIME_CONFIG_PATH');
 
@@ -63,7 +70,18 @@ export function createApp(deps: AppDeps = {}) {
     res.status(200).json({ status: 'ok' });
   });
 
-  const auth = createAuthMiddleware(adminToken);
+  // Sessions are HMAC-signed with a key derived from the admin token, so they
+  // stay valid across restarts and rotate along with the token.
+  const sessions = createSessionSigner(`${adminToken}:session`);
+  const auth = createAuthMiddleware(adminToken, sessions);
+
+  app.use(
+    '/auth',
+    createAuthRouter(
+      createAuthController({ username: loginUser, password: loginPassword, sessions }),
+      auth,
+    ),
+  );
   app.use('/tenant-keys', auth, createTenantKeyRouter(createTenantKeyController(tenantKeySvc)));
   app.use('/config', auth, createConfigRouter(createConfigController(configSvc)));
 

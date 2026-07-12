@@ -28,6 +28,8 @@ services:
     build: ./key-manager
     environment:
       KEY_MANAGER_ADMIN_TOKEN: ${KEY_MANAGER_ADMIN_TOKEN}
+      KEYADMIN_USER: ${KEYADMIN_USER:-admin}
+      KEYADMIN_PASSWORD: ${KEYADMIN_PASSWORD}
       AWS_REGION: ${AWS_REGION:-eu-north-1}
       BASE_CONFIG_PATH: /base/config.yaml
       RUNTIME_CONFIG_PATH: /runtime/config.yaml
@@ -63,9 +65,6 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       WEBCHAT_API_KEY: ${WEBCHAT_API_KEY:-}
-      KEY_MANAGER_ADMIN_TOKEN: ${KEY_MANAGER_ADMIN_TOKEN}
-      KEYADMIN_USER: ${KEYADMIN_USER:-admin}
-      KEYADMIN_PASSWORD_HASH: ${KEYADMIN_PASSWORD_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./webchat:/srv/webchat:ro

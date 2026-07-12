@@ -3,19 +3,13 @@
 	reverse_proxy litellm:4000
 }
 
-# Tenant key admin UI. Locked behind HTTPS + basic-auth login; Caddy then
-# swaps the browser's Basic credentials for the key-manager bearer token, so
-# the admin token never reaches the browser. The key-manager itself stays
-# unexposed (localhost + docker network only) as a second auth layer.
+# Tenant key admin UI. The static page is public (no secrets in it); every
+# /api/* call requires either the key-manager's session cookie (issued by the
+# login form via /api/auth/login) or the admin bearer token. Caddy is a plain
+# TLS proxy here — credentials never live at the edge.
 keys.{$DOMAIN} {
-	basic_auth {
-		{$KEYADMIN_USER} {$KEYADMIN_PASSWORD_HASH}
-	}
-
 	handle_path /api/* {
-		reverse_proxy key-manager:9100 {
-			header_up Authorization "Bearer {$KEY_MANAGER_ADMIN_TOKEN}"
-		}
+		reverse_proxy key-manager:9100
 	}
 
 	handle {

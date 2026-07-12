@@ -21,11 +21,15 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 `;
 
+const LOGIN = { username: 'admin', password: 'correct-horse' };
+
 function buildApp(store: TenantKeyStore, reloader: Reloader, dir: string) {
   return createApp({
     store,
     reloader,
     adminToken: ADMIN_TOKEN,
+    loginUser: LOGIN.username,
+    loginPassword: LOGIN.password,
     baseConfigPath: path.join(dir, 'config.yaml'),
     runtimeConfigPath: path.join(dir, 'runtime', 'config.yaml'),
     logger: createLogger(),
@@ -72,6 +76,45 @@ describe('auth', () => {
   it('healthz is open', async () => {
     const res = await request(app).get('/healthz');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('login sessions', () => {
+  it('rejects wrong credentials with 401', async () => {
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ username: 'admin', password: 'wrong' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 for a malformed login body', async () => {
+    const res = await request(app).post('/auth/login').send({ username: 'admin' });
+    expect(res.status).toBe(400);
+  });
+
+  it('logs in, sets a session cookie, and grants API access', async () => {
+    const login = await request(app).post('/auth/login').send(LOGIN);
+    expect(login.status).toBe(200);
+    const cookie = login.headers['set-cookie'][0];
+    expect(cookie).toContain('km_session=');
+    expect(cookie).toContain('HttpOnly');
+
+    const res = await request(app).get('/tenant-keys').set('Cookie', cookie.split(';')[0]);
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a tampered session cookie', async () => {
+    const res = await request(app)
+      .get('/tenant-keys')
+      .set('Cookie', `km_session=${Date.now() + 99999}.forged-signature`);
+    expect(res.status).toBe(401);
+  });
+
+  it('me returns 200 with a session and 401 without', async () => {
+    const login = await request(app).post('/auth/login').send(LOGIN);
+    const cookie = login.headers['set-cookie'][0].split(';')[0];
+    expect((await request(app).get('/auth/me').set('Cookie', cookie)).status).toBe(200);
+    expect((await request(app).get('/auth/me')).status).toBe(401);
   });
 });
 

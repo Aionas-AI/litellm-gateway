@@ -21,6 +21,7 @@
   header img { width: 44px; height: 44px; border-radius: 10px; }
   header h1 { font-size: 22px; margin: 0; }
   header p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  header .spacer { flex: 1; }
   .grid { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
   @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
   .card {
@@ -65,9 +66,48 @@
   #status.err { background: var(--err-bg); color: var(--err-ink); display: block; }
   .empty { color: var(--muted); text-align: center; padding: 26px 0; font-size: 14px; }
   .hint { font-size: 12.5px; color: var(--muted); margin-top: 14px; line-height: 1.5; }
+
+  /* Login screen */
+  #loginView {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  #loginView .card { width: 380px; max-width: 100%; padding: 32px; }
+  #loginView .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  #loginView .brand img { width: 40px; height: 40px; border-radius: 10px; }
+  #loginView .brand h1 { font-size: 19px; margin: 0; }
+  #loginView .brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  #loginError {
+    display: none; background: var(--err-bg); color: var(--err-ink);
+    border-radius: 8px; padding: 9px 12px; font-size: 13.5px; margin-top: 14px;
+  }
+  #appView { display: none; }
 </style>
 </head>
 <body>
+
+<!-- ── Login ─────────────────────────────────────────────────────────── -->
+<div id="loginView">
+  <div class="card">
+    <div class="brand">
+      <img src="/aionas-logo.png" alt="" onerror="this.style.display='none'" />
+      <div>
+        <h1>Tenant Keys</h1>
+        <p>LiteLLM gateway administration</p>
+      </div>
+    </div>
+    <form id="loginForm">
+      <label for="loginUser">Username</label>
+      <input id="loginUser" required autocomplete="username" />
+      <label for="loginPass">Password</label>
+      <input id="loginPass" type="password" required autocomplete="current-password" />
+      <button type="submit" class="primary">Sign in</button>
+      <div id="loginError"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────────────────────── -->
+<div id="appView">
 <div class="wrap">
   <header>
     <img src="/aionas-logo.png" alt="" onerror="this.style.display='none'" />
@@ -75,6 +115,8 @@
       <h1>Tenant provider keys</h1>
       <p>Store a customer's API key, then apply to publish <code>&lt;tenant&gt;-&lt;alias&gt;</code> on the gateway.</p>
     </div>
+    <div class="spacer"></div>
+    <button class="subtle" id="logoutBtn">Sign out</button>
   </header>
 
   <div class="grid">
@@ -94,19 +136,16 @@
         <div class="row">
           <div>
             <label for="provider">Provider</label>
-            <select id="provider">
-              <option value="anthropic">anthropic</option>
-              <option value="openai">openai</option>
-              <option value="gemini">gemini</option>
-              <option value="bedrock">bedrock</option>
-              <option value="mistral">mistral</option>
-              <option value="azure">azure</option>
-            </select>
+            <select id="provider"></select>
           </div>
           <div>
             <label for="model">Model</label>
-            <input id="model" required placeholder="claude-opus-4-8" />
+            <select id="model"></select>
           </div>
+        </div>
+        <div id="customModelWrap" style="display:none">
+          <label for="customModel">Custom model id</label>
+          <input id="customModel" placeholder="type the provider's model id" />
         </div>
         <label for="apiKey">API key</label>
         <input id="apiKey" type="password" required minlength="8" placeholder="sk-..." autocomplete="off" />
@@ -143,28 +182,110 @@
     </div>
   </div>
 </div>
+</div>
 <div id="status"></div>
 
 <script>
+  // ── Model catalog per provider. "Custom…" always available. ─────────
+  const MODEL_CATALOG = {
+    anthropic: ["claude-opus-4-8", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    openai: ["gpt-5.2", "gpt-5.2-mini", "gpt-4o", "gpt-4o-mini"],
+    gemini: ["gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash"],
+    bedrock: [
+      "eu.anthropic.claude-opus-4-6-v1",
+      "eu.anthropic.claude-sonnet-4-6",
+      "us.anthropic.claude-opus-4-8",
+    ],
+    mistral: ["mistral-large-latest", "codestral-latest"],
+    azure: [],
+  };
+  const CUSTOM = "__custom__";
+
+  const $ = (id) => document.getElementById(id);
   const api = (path, opts = {}) =>
     fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
 
-  const statusEl = document.getElementById("status");
+  // ── Toast ────────────────────────────────────────────────────────────
   let statusTimer;
   function toast(msg, ok = true) {
-    statusEl.textContent = msg;
-    statusEl.className = ok ? "ok" : "err";
+    const el = $("status");
+    el.textContent = msg;
+    el.className = ok ? "ok" : "err";
     clearTimeout(statusTimer);
-    statusTimer = setTimeout(() => (statusEl.className = ""), 6000);
+    statusTimer = setTimeout(() => (el.className = ""), 6000);
   }
 
+  // ── Login / logout ───────────────────────────────────────────────────
+  function showApp(loggedIn) {
+    $("loginView").style.display = loggedIn ? "none" : "flex";
+    $("appView").style.display = loggedIn ? "block" : "none";
+    if (loggedIn) loadKeys();
+  }
+
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: $("loginUser").value, password: $("loginPass").value }),
+    });
+    if (res.ok) {
+      $("loginError").style.display = "none";
+      $("loginPass").value = "";
+      showApp(true);
+    } else {
+      const err = $("loginError");
+      err.textContent = res.status === 401 ? "Wrong username or password." : `Login failed (${res.status}).`;
+      err.style.display = "block";
+    }
+  });
+
+  $("logoutBtn").onclick = async () => {
+    await api("/auth/logout", { method: "POST" });
+    showApp(false);
+  };
+
+  // Any 401 from the API flips back to the login screen.
+  function guard(res) {
+    if (res.status === 401) { showApp(false); throw new Error("session expired"); }
+    return res;
+  }
+
+  // ── Provider → model dropdown ────────────────────────────────────────
+  function initProviders() {
+    const providerSel = $("provider");
+    providerSel.innerHTML = "";
+    for (const p of Object.keys(MODEL_CATALOG)) {
+      providerSel.add(new Option(p, p));
+    }
+    providerSel.onchange = populateModels;
+    populateModels();
+  }
+
+  function populateModels() {
+    const models = MODEL_CATALOG[$("provider").value] ?? [];
+    const modelSel = $("model");
+    modelSel.innerHTML = "";
+    for (const m of models) modelSel.add(new Option(m, m));
+    modelSel.add(new Option("Custom…", CUSTOM));
+    modelSel.onchange = () => {
+      $("customModelWrap").style.display = modelSel.value === CUSTOM ? "block" : "none";
+      $("customModel").required = modelSel.value === CUSTOM;
+    };
+    modelSel.onchange();
+  }
+
+  function selectedModel() {
+    return $("model").value === CUSTOM ? $("customModel").value.trim() : $("model").value;
+  }
+
+  // ── Keys table ───────────────────────────────────────────────────────
   async function loadKeys() {
-    const res = await api("/tenant-keys?page=1&limit=100");
+    const res = guard(await api("/tenant-keys?page=1&limit=100"));
     if (!res.ok) { toast(`Failed to list keys (${res.status})`, false); return; }
     const { data } = await res.json();
-    const rows = document.getElementById("rows");
+    const rows = $("rows");
     rows.innerHTML = "";
-    document.getElementById("empty").style.display = data.length ? "none" : "block";
+    $("empty").style.display = data.length ? "none" : "block";
     for (const k of data) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -177,7 +298,7 @@
       del.textContent = "Delete";
       del.onclick = async () => {
         if (!confirm(`Delete key for ${k.tenant}-${k.alias}?`)) return;
-        const r = await api(`/tenant-keys/${k.tenant}/${k.alias}`, { method: "DELETE" });
+        const r = guard(await api(`/tenant-keys/${k.tenant}/${k.alias}`, { method: "DELETE" }));
         toast(r.status === 204 ? "Deleted. Press Apply config to publish." : `Delete failed (${r.status})`, r.status === 204);
         loadKeys();
       };
@@ -186,19 +307,22 @@
     }
   }
 
-  document.getElementById("keyForm").addEventListener("submit", async (e) => {
+  // ── Form actions ─────────────────────────────────────────────────────
+  $("keyForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const v = (id) => document.getElementById(id).value.trim();
-    const body = { provider: v("provider"), model: v("model"), apiKey: v("apiKey") };
+    const v = (id) => $(id).value.trim();
+    const model = selectedModel();
+    if (!model) { toast("Enter a model id.", false); return; }
+    const body = { provider: v("provider"), model, apiKey: v("apiKey") };
     if (v("region")) body.region = v("region");
     if (v("apiBase")) body.apiBase = v("apiBase");
-    const res = await api(`/tenant-keys/${v("tenant")}/${v("alias")}`, {
+    const res = guard(await api(`/tenant-keys/${v("tenant")}/${v("alias")}`, {
       method: "PUT",
       body: JSON.stringify(body),
-    });
+    }));
     if (res.ok) {
       toast(`Saved ${v("tenant")}-${v("alias")}. Press Apply config to publish.`);
-      document.getElementById("apiKey").value = "";
+      $("apiKey").value = "";
       loadKeys();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -206,10 +330,10 @@
     }
   });
 
-  document.getElementById("refreshBtn").onclick = loadKeys;
+  $("refreshBtn").onclick = loadKeys;
 
-  document.getElementById("previewBtn").onclick = async () => {
-    const res = await api("/config/preview");
+  $("previewBtn").onclick = async () => {
+    const res = guard(await api("/config/preview"));
     if (!res.ok) { toast(`Preview failed (${res.status})`, false); return; }
     const text = await res.text();
     const w = window.open("", "_blank");
@@ -218,10 +342,10 @@
     w.document.title = "config preview";
   };
 
-  document.getElementById("applyBtn").onclick = async () => {
+  $("applyBtn").onclick = async () => {
     if (!confirm("Apply config now? The gateway restarts (~40s) and briefly drops in-flight requests.")) return;
     toast("Applying — regenerating config and restarting the gateway…");
-    const res = await api("/config/apply", { method: "POST" });
+    const res = guard(await api("/config/apply", { method: "POST" }));
     if (res.ok) {
       const r = await res.json();
       toast(`Applied: ${r.tenantModels} tenant model(s) live after restart.`);
@@ -230,7 +354,9 @@
     }
   };
 
-  loadKeys();
+  // ── Boot: restore session if the cookie is still valid ──────────────
+  initProviders();
+  api("/auth/me").then((res) => showApp(res.ok)).catch(() => showApp(false));
 </script>
 </body>
 </html>

@@ -25,7 +25,7 @@ Saving or deleting a key does **not** change the gateway by itself — press
 | Tenant | yes | `ibm` | Lowercase letters/digits/dashes. Becomes the model-name prefix |
 | Alias | yes | `opus` | Names this key within the tenant. Gateway model = `<tenant>-<alias>` |
 | Provider | yes | `anthropic` | LiteLLM provider prefix (`openai`, `anthropic`, `gemini`, `bedrock`, …) |
-| Model | yes | `claude-opus-4-8` | The provider's model id |
+| Model | yes | `claude-opus-4-8` | Dropdown of common models for the chosen provider; pick **Custom…** to type any model id |
 | API key | yes | `sk-ant-...` | The tenant's own key — billed to **their** account |
 | Region | bedrock only | `eu-north-1` | Sets `aws_region_name` |
 | API base | no | `https://...` | Sets `api_base` for custom endpoints |
@@ -37,30 +37,32 @@ they can only spend on their own upstream account.
 ## Security model
 
 ```
-Browser ──HTTPS──▶ Caddy (basic-auth login)
-                     │  replaces login with: Authorization: Bearer <KEY_MANAGER_ADMIN_TOKEN>
-                     ▼
+Browser ──HTTPS──▶ Caddy (plain TLS proxy)
+                     ▼  /api/* only
                    key-manager :9100 (never exposed publicly)
+                     │  login form → POST /auth/login → HttpOnly session cookie (12h)
                      ▼
                    AWS Secrets Manager (key material)
 ```
 
 - **HTTPS** — Let's Encrypt certificate on the `keys.` subdomain.
-- **Login** — Caddy `basic_auth` with a bcrypt-hashed password (`KEYADMIN_USER` /
-  `KEYADMIN_PASSWORD_HASH` in `.env`); the browser shows a native login prompt.
-- **Token isolation** — after login, Caddy swaps the credentials for the
-  key-manager's bearer token server-side. The admin token never reaches the browser.
+- **Login form** — the page opens with a sign-in form. Credentials
+  (`KEYADMIN_USER` / `KEYADMIN_PASSWORD` in `.env`) are validated by the
+  key-manager (timing-safe compare), which issues an HMAC-signed, HttpOnly,
+  Secure, SameSite=Strict session cookie valid for 12 hours. Any 401 flips the
+  UI back to the login screen; **Sign out** clears the session.
+- **No secrets at the edge or in the browser** — Caddy holds no credentials, and
+  the admin bearer token is never sent to the browser; API/CLI clients keep
+  using the bearer token directly.
 - **Write-only keys** — provider keys go straight to Secrets Manager; no API or UI
   path ever returns them.
 
 ## Changing the login password
 
-On the gateway box:
+On the gateway box, edit `.env` (`KEYADMIN_PASSWORD=...`), then:
 
 ```bash
-docker compose exec caddy caddy hash-password --plaintext '<new-password>'
-# put the output in .env as KEYADMIN_PASSWORD_HASH (double every `$` as `$$`)
-docker compose up -d caddy
+docker compose up -d key-manager
 ```
 
 ## Files

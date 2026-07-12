@@ -18,17 +18,23 @@ LiteLLM virtual key.
   `model_name: <tenant>-<alias>` entry per stored key
 - Atomic apply: writes the runtime config via tmp-file + rename, then restarts the
   LiteLLM container through the Docker socket so the new config is loaded
-- Bearer-token auth (constant-time comparison) on every endpoint except `/healthz`;
-  not exposed through Caddy — reachable only via SSM port-forward or from the box
+- Dual auth (constant-time comparisons): bearer token for API/CLI clients, and a
+  login-form session cookie for the browser UI at `keys.<DOMAIN>` (Caddy proxies
+  `/api/*` only; the service itself is never directly exposed)
 - Structured Pino logging with `apiKey` redaction
 
 ## API
 
-All endpoints (except `/healthz`) require `Authorization: Bearer $KEY_MANAGER_ADMIN_TOKEN`.
+All endpoints (except `/healthz` and `/auth/login`/`logout`) require either
+`Authorization: Bearer $KEY_MANAGER_ADMIN_TOKEN` (API/CLI clients) or a session
+cookie from `/auth/login` (the browser UI at `keys.<DOMAIN>`).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/healthz` | Liveness probe (open) |
+| POST | `/auth/login` | Browser login (`{username,password}`) → HttpOnly session cookie (12h, open) |
+| POST | `/auth/logout` | Clear the session cookie (open) |
+| GET | `/auth/me` | 200 if the session/bearer is valid |
 | PUT | `/tenant-keys/:tenant/:alias` | Create or rotate a tenant key |
 | GET | `/tenant-keys/:tenant/:alias` | Read key metadata (never the key itself) |
 | GET | `/tenant-keys?page=&limit=` | List key metadata, paginated |
@@ -121,7 +127,9 @@ npm run build && npm start
 
 | Var | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `KEY_MANAGER_ADMIN_TOKEN` | yes | — | Bearer token for all endpoints |
+| `KEY_MANAGER_ADMIN_TOKEN` | yes | — | Bearer token for API clients; also keys the session HMAC |
+| `KEYADMIN_USER` | yes | — | Username for the browser login form |
+| `KEYADMIN_PASSWORD` | yes | — | Password for the browser login form |
 | `BASE_CONFIG_PATH` | yes | — | Committed secret-free config.yaml |
 | `RUNTIME_CONFIG_PATH` | yes | — | Where the merged config is written |
 | `AWS_REGION` | no | `eu-north-1` | Secrets Manager region |

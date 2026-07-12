@@ -10,3 +10,9 @@ model_list:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+
+# Custom Admin UI branding (enterprise feature, covered by our license).
+# The logo is served by Caddy from webchat/ on the chat subdomain.
+litellm_settings:
+  ui_theme_config:
+    logo_url: "https://chat.56.228.19.15.sslip.io/aionas-logo.png"

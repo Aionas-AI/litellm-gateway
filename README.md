@@ -10,15 +10,18 @@ A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that
 - **No domain required** — `bootstrap.sh` auto-derives a `<public-ip>.sslip.io` hostname that resolves to the box, so you get a real Let's Encrypt cert with no domain purchase (or bring your own domain)
 - Optional **web chat UI** at `chat.<DOMAIN>` — a static ask-a-question page; Caddy injects the API key server-side so the browser never sees it
 - Bedrock access via the EC2 instance IAM role — no AWS keys stored anywhere
+- **Per-tenant provider keys** via the bundled [`key-manager`](key-manager/README.md) service — customer keys live in AWS Secrets Manager, get merged into a runtime config, and the gateway reloads on apply (see [BYOK-COMPARISON.md](BYOK-COMPARISON.md))
 - Runs on a small EC2 box (**≥ 2 GB RAM** — a 1 GB `t3.micro` is too small to pull/run the image; use `t3.small` or larger)
 
 ## Architecture
 
 ```
 client ──HTTPS──> [ EC2 t3.small+ ]
-                   ├── Caddy    :443  (auto Let's Encrypt TLS, via sslip.io or your domain)
-                   ├── litellm  :4000 ──── Bedrock (via IAM instance role)
-                   └── postgres :5432 (Admin UI, keys, budgets, spend)
+                   ├── Caddy       :443  (auto Let's Encrypt TLS, via sslip.io or your domain)
+                   ├── litellm     :4000 ──── Bedrock (via IAM instance role)
+                   ├── postgres    :5432 (Admin UI, keys, budgets, spend)
+                   └── key-manager :9100 (localhost only — tenant keys → Secrets Manager,
+                                          regenerates runtime/config.yaml, reloads litellm)
 ```
 
 ## Usage
@@ -80,17 +83,19 @@ docker compose ps
 
 | File | Purpose |
 | --- | --- |
-| `config.yaml` | LiteLLM model list (Bedrock) + master-key wiring |
-| `docker-compose.yml` | LiteLLM + Caddy + Postgres services |
+| `config.yaml` | Base LiteLLM model list (Bedrock) + master-key wiring — committed, secret-free |
+| `runtime/config.yaml` | Generated at deploy: base + per-tenant keys (git-ignored; what LiteLLM actually loads) |
+| `docker-compose.yml` | LiteLLM + Caddy + Postgres + key-manager services |
 | `Caddyfile` | Reverse proxy + auto-TLS for `$DOMAIN` |
-| `.env.example` | Template for `DOMAIN`, `LITELLM_MASTER_KEY`, `POSTGRES_PASSWORD`, `AWS_REGION` |
+| `.env.example` | Template for `DOMAIN`, `LITELLM_MASTER_KEY`, `POSTGRES_PASSWORD`, `KEY_MANAGER_ADMIN_TOKEN`, `AWS_REGION` |
 | `iam-policy-bedrock.json` | IAM policy for the EC2 instance role (Bedrock invoke) |
-| `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, and starts the gateway |
+| `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, seeds the runtime config, and starts the gateway |
 | `webchat/index.html` | Small web chat UI served at `chat.<DOMAIN>` |
+| `key-manager/` | Tenant key-management microservice ([docs](key-manager/README.md)) |
 
 ## Adding models
 
-Edit `config.yaml` and restart:
+**Shared models** (billed to this AWS account): edit the base `config.yaml`, then re-apply:
 
 ```yaml
 model_list:
@@ -101,8 +106,25 @@ model_list:
 ```
 
 ```bash
-docker compose restart litellm
+curl -X POST http://localhost:9100/config/apply \
+  -H "Authorization: Bearer $KEY_MANAGER_ADMIN_TOKEN"
 ```
+
+**Per-tenant models** (billed to the customer's provider account): store their key
+through the key-manager, then apply — no config edit needed:
+
+```bash
+curl -X PUT http://localhost:9100/tenant-keys/ibm/opus \
+  -H "Authorization: Bearer $KEY_MANAGER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"anthropic","model":"claude-opus-4-8","apiKey":"sk-ant-..."}'
+
+curl -X POST http://localhost:9100/config/apply \
+  -H "Authorization: Bearer $KEY_MANAGER_ADMIN_TOKEN"
+# gateway now serves model "ibm-opus", billed to the tenant's key
+```
+
+See [key-manager/README.md](key-manager/README.md) for the full API.
 
 ## Cost notes
 

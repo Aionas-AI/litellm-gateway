@@ -50,7 +50,17 @@ if [ -z "${DOMAIN}" ] || [ "${DOMAIN}" = "llm.example.com" ]; then
   fi
 fi
 
+# Seed the runtime config from the committed base config on first run. After
+# that, the key-manager service owns runtime/config.yaml (base + tenant keys).
+mkdir -p runtime
+if [ ! -f runtime/config.yaml ]; then
+  cp config.yaml runtime/config.yaml
+  chmod 600 runtime/config.yaml
+  echo "Seeded runtime/config.yaml from config.yaml"
+fi
+
 echo "Starting gateway..."
 docker compose pull
+docker compose build
 docker compose up -d
 echo "Done. Check: docker compose ps"

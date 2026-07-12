@@ -1,6 +1,7 @@
 # Routing clients through the LiteLLM gateway
 
-How to point different clients at the gateway so all model traffic flows:
+How to point different clients (a simple UI app, Cursor, Claude Code, OpenClaw) at
+the gateway so all model traffic flows:
 
 ```
 client -> LiteLLM gateway -> AWS Bedrock -> gateway -> client
@@ -124,6 +125,61 @@ Notes:
   (sent as `x-api-key`) also works if the gateway accepts it.
 - `ANTHROPIC_MODEL` / `ANTHROPIC_SMALL_FAST_MODEL` must match gateway `model_name`s.
 - Tool use / agentic features need capable models — Opus and Sonnet both support them.
+
+---
+
+## 4. OpenClaw
+
+OpenClaw has first-class LiteLLM support — the gateway plugs in as a native
+provider. Mint a dedicated virtual key (Step 0, e.g. `key_alias: openclaw`), then
+either onboard via CLI:
+
+```bash
+openclaw onboard --non-interactive --auth-choice litellm-api-key \
+  --litellm-api-key "sk-<virtual-key>" \
+  --custom-base-url "https://56.228.19.15.sslip.io/v1"
+```
+
+…or add the provider to `~/.openclaw/openclaw.json` (hot-reloaded, no restart):
+
+```json5
+{
+  "models": {
+    "mode": "merge",                       // required — don't clobber built-in providers
+    "providers": {
+      "litellm": {
+        "baseUrl": "https://56.228.19.15.sslip.io/v1",
+        "apiKey": "${LITELLM_API_KEY}",    // or paste the virtual key
+        "api": "openai-completions",       // required
+        "models": [
+          { "id": "claude-opus",   "name": "Claude Opus (gateway)",
+            "reasoning": true, "input": ["text", "image"],
+            "contextWindow": 200000, "maxTokens": 64000 },
+          { "id": "claude-sonnet", "name": "Claude Sonnet (gateway)",
+            "reasoning": true, "input": ["text", "image"],
+            "contextWindow": 200000, "maxTokens": 64000 }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": { "model": { "primary": "litellm/claude-opus" } }
+  }
+}
+```
+
+Gotchas (all three produce confusing errors if missed):
+- **`"api": "openai-completions"` is mandatory** — without it OpenClaw fails with
+  `No API provider registered for api: undefined`.
+- **`"mode": "merge"` is required** — otherwise this block replaces OpenClaw's whole
+  built-in provider catalog.
+- **Model `id`s must equal gateway `model_name`s** (`claude-opus`, `claude-sonnet`,
+  or a tenant model like `ibm-opus`), and references always use the provider prefix:
+  `litellm/claude-opus`.
+
+Per-tenant setup: give the customer's OpenClaw their scoped virtual key and their
+tenant model id (e.g. `"id": "ibm-opus"`, primary `litellm/ibm-opus`) — their agent
+traffic then bills to their own provider account and is tracked under their key.
 
 ---
 

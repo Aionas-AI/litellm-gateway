@@ -20,8 +20,17 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 
-# docker buildx plugin (needed by `docker compose build`)
-if ! docker buildx version >/dev/null 2>&1; then
+# docker buildx plugin (needed by `docker compose build`, requires >= 0.17;
+# the distro docker package may ship an older one, so check the version)
+BUILDX_OK=false
+if docker buildx version >/dev/null 2>&1; then
+  BUILDX_MINOR="$(docker buildx version | sed -E 's/.* v?[0-9]+\.([0-9]+).*/\1/')"
+  BUILDX_MAJOR="$(docker buildx version | sed -E 's/.* v?([0-9]+)\..*/\1/')"
+  if [ "${BUILDX_MAJOR}" -gt 0 ] || [ "${BUILDX_MINOR}" -ge 17 ]; then
+    BUILDX_OK=true
+  fi
+fi
+if [ "${BUILDX_OK}" != "true" ]; then
   echo "Installing docker buildx plugin..."
   mkdir -p /usr/local/lib/docker/cli-plugins
   ARCH="$(uname -m)"

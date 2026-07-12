@@ -20,6 +20,22 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 
+# docker buildx plugin (needed by `docker compose build`)
+if ! docker buildx version >/dev/null 2>&1; then
+  echo "Installing docker buildx plugin..."
+  mkdir -p /usr/local/lib/docker/cli-plugins
+  ARCH="$(uname -m)"
+  case "${ARCH}" in
+    x86_64) BUILDX_ARCH=amd64 ;;
+    aarch64) BUILDX_ARCH=arm64 ;;
+    *) BUILDX_ARCH="${ARCH}" ;;
+  esac
+  BUILDX_URL="$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+    | grep browser_download_url | grep "linux-${BUILDX_ARCH}\"" | cut -d'"' -f4)"
+  curl -fsSL "${BUILDX_URL}" -o /usr/local/lib/docker/cli-plugins/docker-buildx
+  chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+fi
+
 if [ ! -f .env ]; then
   echo "ERROR: .env not found. Copy .env.example to .env and fill it in first." >&2
   exit 1

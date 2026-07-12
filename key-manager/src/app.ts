@@ -1,28 +1,27 @@
 import express from 'express';
-import { createSecretsManagerTenantKeyStore, TenantKeyStore } from './dal/tenantKey.store';
+import { LiteLLMAdminClient, createLiteLLMAdminClient } from './clients/litellm.client';
+import { createAuthController } from './controllers/auth.controller';
+import { createEnrollmentController } from './controllers/enrollment.controller';
+import { createEnrollmentTokenSigner, EnrollmentTokenSigner } from './lib/enrollmentToken';
 import { createErrorHandler } from './lib/errors';
 import { createLogger, Logger } from './lib/logger';
-import { createDockerReloader, Reloader } from './lib/reloader';
 import { createSessionSigner } from './lib/session';
 import { createAuthMiddleware } from './middleware/auth';
-import { createAuthController } from './controllers/auth.controller';
-import { createConfigController } from './controllers/config.controller';
-import { createTenantKeyController } from './controllers/tenantKey.controller';
+import { createEnrollmentAuthMiddleware } from './middleware/enrollmentAuth';
 import { createAuthRouter } from './routes/auth.routes';
-import { createConfigRouter } from './routes/config.routes';
-import { createTenantKeyRouter } from './routes/tenantKey.routes';
-import { createConfigService } from './services/config.service';
-import { createTenantKeyService } from './services/tenantKey.service';
+import { createEnrollmentAdminRouter, createEnrollmentRouter } from './routes/enrollment.routes';
+import { createLegacyConfigRouter, createLegacyTenantKeyRouter } from './routes/legacy.routes';
+import { createEnrollmentService } from './services/enrollment.service';
 
 export interface AppDeps {
-  store?: TenantKeyStore;
-  reloader?: Reloader;
+  litellmClient?: LiteLLMAdminClient;
+  enrollmentSigner?: EnrollmentTokenSigner;
   logger?: Logger;
   adminToken?: string;
   loginUser?: string;
   loginPassword?: string;
-  baseConfigPath?: string;
-  runtimeConfigPath?: string;
+  gatewayBaseUrl?: string;
+  allowedCustomApiBaseHosts?: string[];
 }
 
 function requireEnv(name: string): string {
@@ -31,59 +30,63 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function csvEnv(name: string): string[] {
+  return (process.env[name] ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 export function createApp(deps: AppDeps = {}) {
   const logger = deps.logger ?? createLogger();
   const adminToken = deps.adminToken ?? requireEnv('KEY_MANAGER_ADMIN_TOKEN');
   const loginUser = deps.loginUser ?? requireEnv('KEYADMIN_USER');
   const loginPassword = deps.loginPassword ?? requireEnv('KEYADMIN_PASSWORD');
-  const baseConfigPath = deps.baseConfigPath ?? requireEnv('BASE_CONFIG_PATH');
-  const runtimeConfigPath = deps.runtimeConfigPath ?? requireEnv('RUNTIME_CONFIG_PATH');
-
-  const store =
-    deps.store ??
-    createSecretsManagerTenantKeyStore({
-      region: process.env.AWS_REGION ?? 'eu-north-1',
-      prefix: process.env.SECRET_PREFIX ?? 'litellm-gateway/tenants',
+  const gatewayBaseUrl = deps.gatewayBaseUrl ?? requireEnv('PUBLIC_GATEWAY_URL');
+  const signer =
+    deps.enrollmentSigner ??
+    createEnrollmentTokenSigner(requireEnv('KEY_MANAGER_ENROLLMENT_SIGNING_KEY'));
+  const litellmClient =
+    deps.litellmClient ??
+    createLiteLLMAdminClient({
+      baseUrl: process.env.LITELLM_INTERNAL_URL ?? 'http://litellm:4000',
+      masterKey: requireEnv('LITELLM_MASTER_KEY'),
+      timeoutMs: Number(process.env.LITELLM_ADMIN_TIMEOUT_MS ?? 10_000),
     });
 
-  const reloader =
-    deps.reloader ??
-    createDockerReloader({
-      socketPath: process.env.DOCKER_SOCKET ?? '/var/run/docker.sock',
-      containerName: process.env.LITELLM_CONTAINER ?? 'litellm-gateway-litellm-1',
-      logger,
-    });
-
-  const tenantKeySvc = createTenantKeyService(store);
-  const configSvc = createConfigService({
-    baseConfigPath,
-    runtimeConfigPath,
-    store,
-    reloader,
-    logger,
+  const enrollmentService = createEnrollmentService({
+    client: litellmClient,
+    gatewayBaseUrl,
+    allowedCustomApiBaseHosts:
+      deps.allowedCustomApiBaseHosts ?? csvEnv('ALLOWED_CUSTOM_API_BASE_HOSTS'),
   });
+  const enrollmentController = createEnrollmentController({ service: enrollmentService, signer });
 
   const app = express();
-  app.use(express.json());
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '32kb' }));
 
   app.get('/healthz', (_req, res) => {
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json({ status: 'ok', provisioning: 'dynamic' });
   });
 
-  // Sessions are HMAC-signed with a key derived from the admin token, so they
-  // stay valid across restarts and rotate along with the token.
   const sessions = createSessionSigner(`${adminToken}:session`);
-  const auth = createAuthMiddleware(adminToken, sessions);
+  const adminAuth = createAuthMiddleware(adminToken, sessions);
+  const enrollmentAuth = createEnrollmentAuthMiddleware(signer);
 
   app.use(
     '/auth',
     createAuthRouter(
       createAuthController({ username: loginUser, password: loginPassword, sessions }),
-      auth,
+      adminAuth,
     ),
   );
-  app.use('/tenant-keys', auth, createTenantKeyRouter(createTenantKeyController(tenantKeySvc)));
-  app.use('/config', auth, createConfigRouter(createConfigController(configSvc)));
+  app.use('/enrollments', createEnrollmentRouter(enrollmentController, enrollmentAuth));
+  app.use('/admin/enrollments', adminAuth, createEnrollmentAdminRouter(enrollmentController));
+
+  // Explicit compatibility responses keep old automation from restarting the proxy.
+  app.use('/tenant-keys', adminAuth, createLegacyTenantKeyRouter());
+  app.use('/config', adminAuth, createLegacyConfigRouter());
 
   app.use(createErrorHandler(logger));
   return app;

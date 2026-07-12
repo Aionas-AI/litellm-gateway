@@ -15,30 +15,30 @@ reaches the upstream provider**.
 
 ---
 
-## Approach 1 — Server-side key in the gateway config (recommended default)
+## Approach 1 — Server-side key in LiteLLM's database (recommended default)
 
-The customer hands us a provider key once. It is stored on the gateway (env var /
-AWS Secrets Manager) and referenced from `config.yaml`. Clients only ever send their
-virtual key — the billing routing is invisible to them.
+The customer hands us a provider key once. The control plane registers a database-
+backed LiteLLM deployment through `/model/new`; LiteLLM encrypts the provider fields
+using the stable `LITELLM_SALT_KEY`. Clients only send their virtual key.
 
-### Configuration
+### Dynamic registration
 
-```yaml
-model_list:
-  - model_name: ibm-claude-opus
-    litellm_params:
-      model: anthropic/claude-opus-4-8
-      api_key: os.environ/IBM_ANTHROPIC_KEY    # reference, never the raw key
-
-  - model_name: ibm-gpt
-    litellm_params:
-      model: openai/gpt-5
-      api_key: os.environ/IBM_OPENAI_KEY
+```json
+{
+  "model_name": "aionas-byok-<opaque-id>",
+  "litellm_params": {
+    "model": "anthropic/claude-opus-4-8",
+    "api_key": "sk-ant-..."
+  },
+  "model_info": {
+    "id": "aionas-<opaque-id>",
+    "aionas_managed": true
+  }
+}
 ```
 
-> **Never put the raw token in `config.yaml`** — this repo is public. The config holds
-> an `os.environ/...` reference; the actual key lives in `.env` on the box or (better)
-> AWS Secrets Manager, injected at container start. Same pattern as the master key.
+The provider key is sent over the private management connection and never written
+to a host-side YAML file or returned by the control plane.
 
 ### Client request — nothing special
 
@@ -46,7 +46,7 @@ model_list:
 curl https://<gateway>/v1/chat/completions \
   -H "Authorization: Bearer sk-<virtual-key>" \
   -H "Content-Type: application/json" \
-  -d '{"model":"ibm-claude-opus","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"claude-opus","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ### Coverage — everything
@@ -61,9 +61,9 @@ curl https://<gateway>/v1/chat/completions \
 
 - **Key custody**: the customer's key sits on our gateway — they must trust us.
   Mitigate by asking for a dedicated, spend-capped key from their provider console.
-- **Rotation touches us**: customer sends a new key → we update the secret and
-  restart the container.
-- **Ops per customer**: one env var + one model entry each.
+- **Rotation touches us**: the customer re-runs enrollment and the control plane
+  PATCHes the deterministic deployment. It is immediate and requires no restart.
+- **Ops per customer**: one database deployment plus one virtual key per client.
 
 ---
 
@@ -185,7 +185,7 @@ Code, which only control headers/env vars.
 
 ## Side-by-side
 
-| | **1. Server-side config** | **2. Header forwarding** | **3. `extra_body` params** |
+| | **1. Database deployment** | **2. Header forwarding** | **3. `extra_body` params** |
 | --- | --- | --- | --- |
 | Works with OpenAI | ✅ | ❌ (Bearer-auth conflict) | ✅ |
 | Works with Anthropic | ✅ | ✅ | ✅ |
@@ -194,10 +194,10 @@ Code, which only control headers/env vars.
 | Works with *any* LiteLLM provider | ✅ | ❌ header allowlist only | ✅ |
 | Unmodified clients (Cursor, plain SDKs) | ✅ | ❌ needs extra header | ❌ needs body change |
 | Claude Code | ✅ | ✅ (native `/login` flow) | ❌ |
-| Provider key stored on gateway | **Yes** (env/Secrets Manager) | No (transit only) | No (transit only) |
+| Provider key stored on gateway | **Yes** (encrypted LiteLLM DB row) | No (transit only) | No (transit only) |
 | Customer must trust us with their key | Yes | No | No |
-| Key rotation | Through us (update secret + restart) | Customer-side, zero touch | Customer-side, zero touch |
-| Config scope | Per model entry | Global toggle | Per model entry |
+| Key rotation | Through enrollment, no restart | Customer-side, zero touch | Customer-side, zero touch |
+| Config scope | Per database deployment | Global toggle | Per model entry |
 | Extra params (region, project, api_base) | Yes (in config) | No | Yes (regex-restrictable) |
 
 ## Security notes (all approaches)
@@ -207,8 +207,8 @@ Code, which only control headers/env vars.
   Billing separation relies on customers guarding their own provider keys; access
   separation relies on our virtual-key / team scoping. Keep every customer's virtual
   key locked to their own model entries.
-- With approach 1, raw keys must only ever exist in `.env` / Secrets Manager — never
-  in the repo. Ask customers for dedicated, spend-capped keys to limit custody risk.
+- With approach 1, provider fields are encrypted in LiteLLM's database with a stable
+  salt and must never appear in logs, previews, host files, or the repo.
 - Keys pass through gateway memory and upstream TLS requests — make sure request
   logging never captures raw headers/bodies containing keys.
 - Per-key `max_budget` on virtual keys still applies and is worth setting as a
@@ -216,7 +216,7 @@ Code, which only control headers/env vars.
 
 ## Recommendation
 
-**Default to Approach 1 (server-side key in config).** It is the only approach that
+**Default to Approach 1 (server-side encrypted database deployment).** It is the only approach that
 supports every provider *and* every client with zero client-side changes, and the
 onboarding story for the customer is the simplest possible: "here is your gateway URL
 and your key." Ask each customer for a dedicated, spend-capped provider key to keep
@@ -233,9 +233,10 @@ approaches at the same time.
 
 Per customer, onboarding stays the same either way:
 
-1. Create a team (`/team/new`) scoped to the customer's model entries.
-2. Mint a virtual key (`/key/generate`) bound to that team.
-3. Customer sends the virtual key for gateway auth; their provider key is applied
-   server-side (approach 1) or sent per request (approaches 2/3).
+1. Mint a short-lived tenant/user-scoped enrollment capability.
+2. Enrollment registers the customer's deterministic deployment and mints one
+   explicitly model-scoped virtual key per selected client.
+3. The client sends its virtual key for gateway auth; the provider key is applied
+   from the encrypted deployment (approach 1) or sent per request (approaches 2/3).
 4. Usage, logs, and spend appear per-customer in the Admin UI; tokens are billed to
    the customer's provider account.

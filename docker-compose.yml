@@ -8,6 +8,8 @@ services:
       AWS_REGION: ${AWS_REGION:-eu-north-1}
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@db:5432/litellm
       STORE_MODEL_IN_DB: "True"
+      # Custom Admin UI logo (enterprise branding). Served by Caddy from webchat/.
+      UI_LOGO_PATH: https://chat.${DOMAIN:-56.228.19.15.sslip.io}/aionas-logo.png
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     expose:

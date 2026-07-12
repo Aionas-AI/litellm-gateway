@@ -2,6 +2,7 @@ import {
   CreateSecretCommand,
   DeleteSecretCommand,
   GetSecretValueCommand,
+  InvalidRequestException,
   ListSecretsCommand,
   PutSecretValueCommand,
   ResourceExistsException,
@@ -73,6 +74,9 @@ export function createSecretsManagerTenantKeyStore(
       return res.SecretString ? (JSON.parse(res.SecretString) as TenantModelKey) : undefined;
     } catch (err) {
       if (err instanceof ResourceNotFoundException) return undefined;
+      // ListSecrets is eventually consistent: a just-deleted secret can still be
+      // listed but rejects reads with "marked for deletion" — treat as absent.
+      if (err instanceof InvalidRequestException) return undefined;
       throw err;
     }
   }

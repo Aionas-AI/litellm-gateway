@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tenant Keys — LiteLLM Gateway</title>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #ffffff; --ink: #1e293b; --muted: #64748b;
+    --brand: #0d9488; --brand-dark: #0f766e; --danger: #dc2626;
+    --border: #e2e8f0; --ok-bg: #ecfdf5; --ok-ink: #047857;
+    --err-bg: #fef2f2; --err-ink: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  header img { width: 44px; height: 44px; border-radius: 10px; }
+  header h1 { font-size: 22px; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  }
+  .card h2 { margin: 0 0 16px; font-size: 16px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+  label span { color: var(--muted); font-weight: 400; }
+  input, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; background: #fff; color: var(--ink);
+  }
+  input:focus, select:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: var(--brand); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button {
+    border: 0; border-radius: 8px; padding: 10px 16px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .primary { background: var(--brand); color: #fff; width: 100%; margin-top: 18px; }
+  .primary:hover { background: var(--brand-dark); }
+  .subtle { background: #f1f5f9; color: var(--ink); }
+  .subtle:hover { background: #e2e8f0; }
+  .danger { background: transparent; color: var(--danger); padding: 6px 10px; font-size: 13px; }
+  .danger:hover { background: var(--err-bg); }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-size: 12px; text-transform: uppercase;
+       letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: 0; }
+  .model-chip {
+    background: #f0fdfa; color: var(--brand-dark); border: 1px solid #99f6e4;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  #status {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 500;
+    display: none; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.15); max-width: 90vw;
+  }
+  #status.ok { background: var(--ok-bg); color: var(--ok-ink); display: block; }
+  #status.err { background: var(--err-bg); color: var(--err-ink); display: block; }
+  .empty { color: var(--muted); text-align: center; padding: 26px 0; font-size: 14px; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="/aionas-logo.png" alt="" onerror="this.style.display='none'" />
+    <div>
+      <h1>Tenant provider keys</h1>
+      <p>Store a customer's API key, then apply to publish <code>&lt;tenant&gt;-&lt;alias&gt;</code> on the gateway.</p>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Add / rotate a key</h2>
+      <form id="keyForm">
+        <div class="row">
+          <div>
+            <label for="tenant">Tenant</label>
+            <input id="tenant" required pattern="[a-z0-9][a-z0-9-]{0,62}" placeholder="ibm" />
+          </div>
+          <div>
+            <label for="alias">Alias</label>
+            <input id="alias" required pattern="[a-z0-9][a-z0-9-]{0,62}" placeholder="opus" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="provider">Provider</label>
+            <select id="provider">
+              <option value="anthropic">anthropic</option>
+              <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="bedrock">bedrock</option>
+              <option value="mistral">mistral</option>
+              <option value="azure">azure</option>
+            </select>
+          </div>
+          <div>
+            <label for="model">Model</label>
+            <input id="model" required placeholder="claude-opus-4-8" />
+          </div>
+        </div>
+        <label for="apiKey">API key</label>
+        <input id="apiKey" type="password" required minlength="8" placeholder="sk-..." autocomplete="off" />
+        <div class="row">
+          <div>
+            <label for="region">Region <span>(bedrock)</span></label>
+            <input id="region" placeholder="eu-north-1" />
+          </div>
+          <div>
+            <label for="apiBase">API base <span>(optional)</span></label>
+            <input id="apiBase" placeholder="https://..." />
+          </div>
+        </div>
+        <button type="submit" class="primary">Save key</button>
+      </form>
+      <p class="hint">
+        Keys go straight to AWS Secrets Manager — they are never shown again after saving.
+        Changes only reach the gateway when you press <b>Apply config</b> (≈40s restart).
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Stored keys</h2>
+      <div class="toolbar">
+        <button class="subtle" id="refreshBtn">Refresh</button>
+        <button class="subtle" id="previewBtn">Preview config</button>
+        <button class="primary" style="width:auto;margin:0" id="applyBtn">Apply config</button>
+      </div>
+      <table>
+        <thead><tr><th>Gateway model</th><th>Upstream</th><th>Updated</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty" style="display:none">No tenant keys stored yet.</div>
+    </div>
+  </div>
+</div>
+<div id="status"></div>
+
+<script>
+  const api = (path, opts = {}) =>
+    fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
+
+  const statusEl = document.getElementById("status");
+  let statusTimer;
+  function toast(msg, ok = true) {
+    statusEl.textContent = msg;
+    statusEl.className = ok ? "ok" : "err";
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => (statusEl.className = ""), 6000);
+  }
+
+  async function loadKeys() {
+    const res = await api("/tenant-keys?page=1&limit=100");
+    if (!res.ok) { toast(`Failed to list keys (${res.status})`, false); return; }
+    const { data } = await res.json();
+    const rows = document.getElementById("rows");
+    rows.innerHTML = "";
+    document.getElementById("empty").style.display = data.length ? "none" : "block";
+    for (const k of data) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><span class="model-chip">${k.tenant}-${k.alias}</span></td>
+        <td>${k.provider}/${k.model}</td>
+        <td>${new Date(k.updatedAt).toLocaleString()}</td>
+        <td style="text-align:right"></td>`;
+      const del = document.createElement("button");
+      del.className = "danger";
+      del.textContent = "Delete";
+      del.onclick = async () => {
+        if (!confirm(`Delete key for ${k.tenant}-${k.alias}?`)) return;
+        const r = await api(`/tenant-keys/${k.tenant}/${k.alias}`, { method: "DELETE" });
+        toast(r.status === 204 ? "Deleted. Press Apply config to publish." : `Delete failed (${r.status})`, r.status === 204);
+        loadKeys();
+      };
+      tr.lastElementChild.appendChild(del);
+      rows.appendChild(tr);
+    }
+  }
+
+  document.getElementById("keyForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = (id) => document.getElementById(id).value.trim();
+    const body = { provider: v("provider"), model: v("model"), apiKey: v("apiKey") };
+    if (v("region")) body.region = v("region");
+    if (v("apiBase")) body.apiBase = v("apiBase");
+    const res = await api(`/tenant-keys/${v("tenant")}/${v("alias")}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      toast(`Saved ${v("tenant")}-${v("alias")}. Press Apply config to publish.`);
+      document.getElementById("apiKey").value = "";
+      loadKeys();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(`Save failed (${res.status}): ${err.error ?? "unknown error"}`, false);
+    }
+  });
+
+  document.getElementById("refreshBtn").onclick = loadKeys;
+
+  document.getElementById("previewBtn").onclick = async () => {
+    const res = await api("/config/preview");
+    if (!res.ok) { toast(`Preview failed (${res.status})`, false); return; }
+    const text = await res.text();
+    const w = window.open("", "_blank");
+    w.document.write(`<pre style="font: 13px/1.5 monospace; padding: 20px; white-space: pre-wrap;">${
+      text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`);
+    w.document.title = "config preview";
+  };
+
+  document.getElementById("applyBtn").onclick = async () => {
+    if (!confirm("Apply config now? The gateway restarts (~40s) and briefly drops in-flight requests.")) return;
+    toast("Applying — regenerating config and restarting the gateway…");
+    const res = await api("/config/apply", { method: "POST" });
+    if (res.ok) {
+      const r = await res.json();
+      toast(`Applied: ${r.tenantModels} tenant model(s) live after restart.`);
+    } else {
+      toast(`Apply failed (${res.status})`, false);
+    }
+  };
+
+  loadKeys();
+</script>
+</body>
+</html>

@@ -63,13 +63,18 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       WEBCHAT_API_KEY: ${WEBCHAT_API_KEY:-}
+      KEY_MANAGER_ADMIN_TOKEN: ${KEY_MANAGER_ADMIN_TOKEN}
+      KEYADMIN_USER: ${KEYADMIN_USER:-admin}
+      KEYADMIN_PASSWORD_HASH: ${KEYADMIN_PASSWORD_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./webchat:/srv/webchat:ro
+      - ./keyadmin:/srv/keyadmin:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - litellm
+      - key-manager
     restart: unless-stopped
 
 volumes:

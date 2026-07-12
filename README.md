@@ -11,6 +11,7 @@ A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that
 - Optional **web chat UI** at `chat.<DOMAIN>` — a static ask-a-question page; Caddy injects the API key server-side so the browser never sees it
 - Bedrock access via the EC2 instance IAM role — no AWS keys stored anywhere
 - **Per-tenant provider keys** via the bundled [`key-manager`](key-manager/README.md) service — customer keys live in AWS Secrets Manager, get merged into a runtime config, and the gateway reloads on apply (see [BYOK-COMPARISON.md](BYOK-COMPARISON.md))
+- **Key admin browser UI** at `keys.<DOMAIN>` — login-protected (basic auth over HTTPS); Caddy swaps the login for the admin bearer token server-side
 - Runs on a small EC2 box (**≥ 2 GB RAM** — a 1 GB `t3.micro` is too small to pull/run the image; use `t3.small` or larger)
 
 ## Architecture
@@ -92,6 +93,7 @@ docker compose ps
 | `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, seeds the runtime config, and starts the gateway |
 | `webchat/index.html` | Small web chat UI served at `chat.<DOMAIN>` |
 | `key-manager/` | Tenant key-management microservice ([docs](key-manager/README.md)) |
+| `keyadmin/index.html` | Browser UI for tenant keys, served at `keys.<DOMAIN>` behind a login |
 
 ## Adding models
 

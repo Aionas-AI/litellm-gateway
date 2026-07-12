@@ -19,9 +19,13 @@ A standalone, stateless [LiteLLM](https://github.com/BerriAI/litellm) proxy that
 ```
 client ──HTTPS──> [ EC2 t3.small+ ]
                    ├── Caddy       :443  (auto Let's Encrypt TLS, via sslip.io or your domain)
+                   │     ├─ <DOMAIN>       → litellm API
+                   │     ├─ chat.<DOMAIN>  → web chat UI (key injected server-side)
+                   │     └─ keys.<DOMAIN>  → tenant key admin UI (basic-auth login,
+                   │                         admin token injected server-side)
                    ├── litellm     :4000 ──── Bedrock (via IAM instance role)
                    ├── postgres    :5432 (Admin UI, keys, budgets, spend)
-                   └── key-manager :9100 (localhost only — tenant keys → Secrets Manager,
+                   └── key-manager :9100 (not public — tenant keys → Secrets Manager,
                                           regenerates runtime/config.yaml, reloads litellm)
 ```
 
@@ -93,7 +97,7 @@ docker compose ps
 | `bootstrap.sh` | Installs Docker + compose, auto-derives a `sslip.io` domain if none is set, seeds the runtime config, and starts the gateway |
 | `webchat/index.html` | Small web chat UI served at `chat.<DOMAIN>` |
 | `key-manager/` | Tenant key-management microservice ([docs](key-manager/README.md)) |
-| `keyadmin/index.html` | Browser UI for tenant keys, served at `keys.<DOMAIN>` behind a login |
+| `keyadmin/` | Browser UI for tenant keys at `keys.<DOMAIN>`, behind a login ([docs](keyadmin/README.md)) |
 
 ## Adding models
 

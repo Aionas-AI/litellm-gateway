@@ -1,5 +1,14 @@
 # Migration: static tenant-key config → dynamic BYOK (v1.92)
 
+> **Status: executed on the production box on 2026-07-14.** All phases
+> completed and all smoke tests passed. Pre-migration backups live in
+> `/root/backups/pre-v192-2026-07-14-0734.{sql.gz,env}` on the instance;
+> the rollback commit is `00b11ce` (last commit before PR #1's merge).
+> The Secrets Manager inventory was empty, so no tenant re-enrollment was
+> needed. This document is kept as the reference runbook for future
+> LiteLLM version bumps — in particular, re-run the Phase 2 alias-guard
+> fail-closed test after every upgrade.
+
 This is the rollout plan for moving the live EC2 box from the v1.91.1 stack
 (file-based `runtime/config.yaml`, key-manager writing to AWS Secrets Manager,
 Docker-socket restarts) to the v1.92.0 stack (database-backed models, enrollment

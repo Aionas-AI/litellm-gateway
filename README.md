@@ -46,6 +46,9 @@ Required secrets include `LITELLM_MASTER_KEY`, `POSTGRES_PASSWORD`,
 `KEY_MANAGER_ADMIN_TOKEN`, `KEY_MANAGER_ENROLLMENT_SIGNING_KEY`, and the admin UI
 password.
 
+The EC2 instance role needs Bedrock invoke permissions for the shared models —
+see [iam-policy-bedrock.json](iam-policy-bedrock.json).
+
 Upgrading an existing v1.91 box? Follow the phased runbook in
 [MIGRATION.md](MIGRATION.md) — it covers backups, the salt-key rule, smoke tests
 (including the alias-guard fail-closed check), cleanup, and rollback.

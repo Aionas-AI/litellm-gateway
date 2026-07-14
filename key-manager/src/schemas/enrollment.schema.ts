@@ -31,7 +31,7 @@ export const enrollmentTokenRequestSchema = z.object({
   expiresInMinutes: z.coerce.number().int().min(1).max(60).default(15),
 });
 
-export const enrollmentClientSchema = z.object({
+const enrollmentClientSchema = z.object({
   clientId: z.enum(supportedClients),
   duration: duration.optional().default('90d'),
   maxBudget: z.number().positive().max(1_000_000).optional(),
@@ -73,7 +73,3 @@ export const adminEnrollmentRequestSchema = z.object({
 export const managedModelParamsSchema = z.object({
   modelId: z.string().min(1).max(128),
 });
-
-export type EnrollmentTokenRequest = z.infer<typeof enrollmentTokenRequestSchema>;
-export type EnrollmentRequest = z.infer<typeof enrollmentRequestSchema>;
-export type AdminEnrollmentRequest = z.infer<typeof adminEnrollmentRequestSchema>;

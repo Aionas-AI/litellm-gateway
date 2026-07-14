@@ -13,6 +13,8 @@ interface EnrollmentTokenPayload {
 export interface EnrollmentTokenSigner {
   issue(tenantId: string, userId: string, ttlMs: number): { token: string; expiresAt: number };
   verify(token: string): EnrollmentPrincipal;
+  /** Burn a token after a successful enrollment so it cannot be replayed. */
+  markUsed(tokenId: string, expiresAt: number): void;
 }
 
 const TOKEN_PREFIX = 'aionas_enroll_';
@@ -48,6 +50,16 @@ export function createEnrollmentTokenSigner(secret: string): EnrollmentTokenSign
   const sign = (payload: string) =>
     createHmac('sha256', secret).update(payload).digest('base64url');
 
+  // One-time-use registry: jti -> token expiry. Entries prune themselves once
+  // the token would be rejected as expired anyway, so the map stays bounded.
+  const usedTokenIds = new Map<string, number>();
+
+  function pruneUsed(now: number): void {
+    usedTokenIds.forEach((exp, jti) => {
+      if (exp <= now) usedTokenIds.delete(jti);
+    });
+  }
+
   return {
     issue(tenantId, userId, ttlMs) {
       const expiresAt = Date.now() + ttlMs;
@@ -73,13 +85,23 @@ export function createEnrollmentTokenSigner(secret: string): EnrollmentTokenSign
         throw new UnauthorizedError('Invalid enrollment token');
       }
       const payload = decode(payloadText);
-      if (payload.exp <= Date.now()) throw new UnauthorizedError('Enrollment token expired');
+      const now = Date.now();
+      if (payload.exp <= now) throw new UnauthorizedError('Enrollment token expired');
+      pruneUsed(now);
+      if (usedTokenIds.has(payload.jti)) {
+        throw new UnauthorizedError('Enrollment token already used');
+      }
       return {
         tenantId: payload.tid,
         userId: payload.uid,
         tokenId: payload.jti,
         expiresAt: payload.exp,
       };
+    },
+
+    markUsed(tokenId, expiresAt) {
+      pruneUsed(Date.now());
+      usedTokenIds.set(tokenId, expiresAt);
     },
   };
 }

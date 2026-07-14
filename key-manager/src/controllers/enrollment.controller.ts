@@ -43,6 +43,9 @@ export function createEnrollmentController(opts: EnrollmentControllerOptions) {
         const principal = res.locals.enrollmentPrincipal as EnrollmentPrincipal;
         const input = enrollmentRequestSchema.parse(req.body);
         const result = await opts.service.provision(principal, input);
+        // Burn the token only after success so a validation typo doesn't
+        // force the admin to mint a new one.
+        opts.signer.markUsed(principal.tokenId, principal.expiresAt);
         noStore(res);
         res.status(201).json(result);
       } catch (err) {

@@ -9,7 +9,9 @@ After login an administrator can:
 - choose one or more clients and receive their virtual keys once;
 - list and delete Aionas-managed deployments; and
 - mint a 15-minute setup token for `aionas-connect`, allowing the customer to type
-  their provider key on their own machine.
+  their provider key on their own machine. Tokens are single-use: one successful
+  enrollment burns the token, so a leaked token cannot be replayed to mint extra
+  keys. Failed attempts (validation errors) do not burn it.
 
 Provider keys are sent directly to the key-manager over HTTPS, forwarded to
 LiteLLM's private management endpoint, encrypted in Postgres, and cleared from the

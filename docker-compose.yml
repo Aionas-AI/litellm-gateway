@@ -7,9 +7,10 @@ services:
     command: ["--config", "/config/config.yaml"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      # Existing installs should initially set this to their current master key.
-      # New installs should generate a separate stable value and never rotate it.
-      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-${LITELLM_MASTER_KEY}}
+      # Required, no fallback: encrypts provider credentials in the DB. If it
+      # silently defaulted to the master key, rotating the master key later
+      # would make every stored credential undecryptable. Never rotate this.
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?LITELLM_SALT_KEY must be set - see .env.example}
       LITELLM_LICENSE: ${LITELLM_LICENSE:-}
       AWS_REGION: ${AWS_REGION:-eu-north-1}
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@db:5432/litellm

@@ -43,6 +43,7 @@ export class LiteLLMAdminClientError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly body = '',
   ) {
     super(message);
     this.name = 'LiteLLMAdminClientError';
@@ -88,7 +89,12 @@ export function createLiteLLMAdminClient(opts: LiteLLMAdminClientOptions): LiteL
         signal: controller.signal,
       });
       if (!response.ok) {
-        throw new LiteLLMAdminClientError(`LiteLLM ${method} ${path} failed`, response.status);
+        const errorBody = await response.text().catch(() => '');
+        throw new LiteLLMAdminClientError(
+          `LiteLLM ${method} ${path} failed`,
+          response.status,
+          errorBody.slice(0, 2048),
+        );
       }
       if (response.status === 204) return undefined as T;
       const text = await response.text();
@@ -116,8 +122,11 @@ export function createLiteLLMAdminClient(opts: LiteLLMAdminClientOptions): LiteL
         const records = await queryModels(modelId);
         return records.find((record) => recordId(record) === modelId);
       } catch (err) {
-        if (err instanceof LiteLLMAdminClientError && [400, 404].includes(err.status)) {
-          return undefined;
+        // LiteLLM reports an unknown model id as 404, or on some versions as
+        // a 400 whose body says "not found". Any other 400 is a real error.
+        if (err instanceof LiteLLMAdminClientError) {
+          if (err.status === 404) return undefined;
+          if (err.status === 400 && /not found/i.test(err.body)) return undefined;
         }
         throw err;
       }

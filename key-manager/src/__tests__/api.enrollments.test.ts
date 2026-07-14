@@ -136,6 +136,40 @@ describe('admin and enrollment authentication', () => {
       ).status,
     ).toBe(401);
   });
+
+  it('rejects replay of a token that already completed an enrollment', async () => {
+    const auth = { Authorization: `Bearer ${tokenFor()}` };
+    const first = await request(app).post('/enrollments').set(auth).send(enrollmentBody);
+    expect(first.status).toBe(201);
+
+    const replay = await request(app).post('/enrollments').set(auth).send(enrollmentBody);
+    expect(replay.status).toBe(401);
+    expect(replay.body.error).toMatch(/already used/i);
+    expect(fake.generatedKeys).toHaveLength(enrollmentBody.clients.length);
+  });
+
+  it('does not burn the token when the enrollment attempt fails validation', async () => {
+    const auth = { Authorization: `Bearer ${tokenFor()}` };
+    const bad = await request(app)
+      .post('/enrollments')
+      .set(auth)
+      .send({ ...enrollmentBody, apiKey: 'short' });
+    expect(bad.status).toBe(400);
+
+    const retry = await request(app).post('/enrollments').set(auth).send(enrollmentBody);
+    expect(retry.status).toBe(201);
+  });
+
+  it('rejects virtual-key durations longer than 365 days', async () => {
+    const res = await request(app)
+      .post('/enrollments')
+      .set('Authorization', `Bearer ${tokenFor()}`)
+      .send({
+        ...enrollmentBody,
+        clients: [{ clientId: 'claude-code', duration: '9999d' }],
+      });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('dynamic BYOK provisioning', () => {
@@ -166,11 +200,13 @@ describe('dynamic BYOK provisioning', () => {
   });
 
   it('updates the deterministic model on provider-key rotation instead of creating a duplicate', async () => {
-    const auth = { Authorization: `Bearer ${tokenFor()}` };
-    const first = await request(app).post('/enrollments').set(auth).send(enrollmentBody);
+    const first = await request(app)
+      .post('/enrollments')
+      .set('Authorization', `Bearer ${tokenFor()}`)
+      .send(enrollmentBody);
     const second = await request(app)
       .post('/enrollments')
-      .set(auth)
+      .set('Authorization', `Bearer ${tokenFor()}`)
       .send({ ...enrollmentBody, apiKey: 'sk-ant-rotated-provider-secret' });
 
     expect(first.body.internalModelId).toBe(second.body.internalModelId);

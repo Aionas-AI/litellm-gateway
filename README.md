@@ -46,6 +46,10 @@ Required secrets include `LITELLM_MASTER_KEY`, `POSTGRES_PASSWORD`,
 `KEY_MANAGER_ADMIN_TOKEN`, `KEY_MANAGER_ENROLLMENT_SIGNING_KEY`, and the admin UI
 password.
 
+Upgrading an existing v1.91 box? Follow the phased runbook in
+[MIGRATION.md](MIGRATION.md) — it covers backups, the salt-key rule, smoke tests
+(including the alias-guard fail-closed check), cleanup, and rollback.
+
 ### v1.91 → v1.92 salt rule
 
 Existing encrypted rows used the master key when no `LITELLM_SALT_KEY` was set.

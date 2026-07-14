@@ -46,7 +46,11 @@ curl https://keys.example.com/api/admin/enrollments/tokens \
 
 The returned `aionas_enroll_...` token can call only the enrollment endpoint and
 expires within at most 60 minutes. Tenant and user identity come from its signed
-claims, never from the enrollment request body.
+claims, never from the enrollment request body. Each token is single-use: the
+first successful enrollment burns it (failed validation attempts do not), so a
+leaked or intercepted token cannot be replayed to mint additional keys. The
+used-token registry is in-memory; a key-manager restart clears it, which is
+acceptable given the short TTL. Virtual-key durations are capped at 365 days.
 
 ### Provision
 

@@ -385,7 +385,7 @@
     if (res.ok) {
       const result = await res.json();
       showOneTime("Aionas setup token", `${result.token}\n\nExpires: ${result.expiresAt}`);
-      toast("Setup token created. It expires in 15 minutes.");
+      toast("Setup token created. Single use; expires in 15 minutes.");
     } else {
       toast(`Token creation failed (${res.status})`, false);
     }

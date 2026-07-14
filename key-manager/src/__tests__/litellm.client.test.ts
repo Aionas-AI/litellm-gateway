@@ -19,6 +19,16 @@ describe('LiteLLM admin client', () => {
     await expect(client.getModel('missing')).resolves.toBeUndefined();
   });
 
+  it('does not treat other 400 responses as missing models', async () => {
+    const fetchImpl = vi.fn(async () => response(400, { error: 'invalid master key' }));
+    const client = createLiteLLMAdminClient({
+      baseUrl: 'http://litellm:4000',
+      masterKey: 'sk-test',
+      fetchImpl,
+    });
+    await expect(client.getModel('missing')).rejects.toBeInstanceOf(LiteLLMAdminClientError);
+  });
+
   it('does not hide server failures while looking up a model', async () => {
     const fetchImpl = vi.fn(async () => response(500, { error: 'database unavailable' }));
     const client = createLiteLLMAdminClient({

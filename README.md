@@ -50,6 +50,24 @@ Upgrading an existing v1.91 box? Follow the phased runbook in
 [MIGRATION.md](MIGRATION.md) — it covers backups, the salt-key rule, smoke tests
 (including the alias-guard fail-closed check), cleanup, and rollback.
 
+## Continuous deployment
+
+Every push to `master` (and manual runs via the Actions tab) triggers
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
+
+1. **test** — key-manager lint + Vitest suite, alias-guard policy tests, and
+   `aionas-connect` tests must pass first;
+2. **deploy** — the workflow assumes an AWS IAM role via GitHub OIDC (no
+   long-lived keys stored in GitHub), then runs the deploy on the EC2 box over
+   SSM: `git reset --hard origin/master`, `docker compose build --pull`,
+   `docker compose up -d`, and fails unless LiteLLM returns to `healthy` and the
+   key-manager answers `/healthz`.
+
+Deploys are serialized by a concurrency group. The IAM role
+(`litellm-gateway-github-deploy`) is restricted to the `master` branch of this
+repository and can only send `AWS-RunShellScript` to the gateway instance.
+Repository secrets: `AWS_DEPLOY_ROLE_ARN`, `GATEWAY_INSTANCE_ID`.
+
 ### v1.91 → v1.92 salt rule
 
 Existing encrypted rows used the master key when no `LITELLM_SALT_KEY` was set.

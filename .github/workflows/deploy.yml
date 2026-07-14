@@ -73,7 +73,13 @@ jobs:
             sleep 5
           done
           [ "$STATE" = healthy ] || { echo "LiteLLM never became healthy"; docker compose logs --tail 50 litellm; exit 1; }
-          curl -sf http://127.0.0.1:9100/healthz
+          # key-manager has no container healthcheck; give it time to boot.
+          KM_OK=false
+          for i in $(seq 1 12); do
+            curl -sf http://127.0.0.1:9100/healthz && { KM_OK=true; break; }
+            sleep 5
+          done
+          [ "$KM_OK" = true ] || { echo "key-manager never answered /healthz"; docker compose logs --tail 50 key-manager; exit 1; }
           echo
           docker compose ps --format '{{.Name}} {{.Status}}'
           docker image prune -f > /dev/null

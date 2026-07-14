@@ -7,8 +7,10 @@
 caddy_data/
 caddy_config/
 
-# Generated LiteLLM runtime config (contains tenant provider keys)
-runtime/
+# Local analysis and Python bytecode
+.octocode/
+__pycache__/
+*.py[cod]
 
 # OS
 .DS_Store

@@ -1,164 +1,88 @@
-# Routing clients through the LiteLLM gateway
+# Connect coding clients
 
-How to point different clients (a simple UI app, Cursor, Claude Code, OpenClaw) at
-the gateway so all model traffic flows:
+Every client receives its own LiteLLM virtual key. The customer's provider key is
+entered only during enrollment and is never placed in a coding-client config.
 
-```
-client -> LiteLLM gateway -> AWS Bedrock -> gateway -> client
-```
-
-The client never holds AWS credentials — only the gateway URL and a virtual key.
-
-## Gateway facts
-
-| Thing | Value |
-| --- | --- |
-| Host | `https://56.228.19.15.sslip.io` (your gateway's public hostname) |
-| OpenAI-compatible base URL | `https://56.228.19.15.sslip.io/v1` |
-| Anthropic-compatible base URL | `https://56.228.19.15.sslip.io` (endpoint `/v1/messages`) |
-| Models | `claude-opus`, `claude-sonnet` |
-| Auth | `Authorization: Bearer <virtual-key>` |
-
-Both API shapes are served by the same gateway: OpenAI clients use `/v1/chat/completions`, Anthropic clients (like Claude Code) use `/v1/messages`.
-
-## Step 0 - Mint a virtual key (once)
-
-Never reuse the master key in clients. Create a scoped key (needs the master key once):
+## Recommended: aionas-connect
 
 ```bash
-curl -s https://56.228.19.15.sslip.io/key/generate \
-  -H "Authorization: Bearer <MASTER_KEY>" -H "Content-Type: application/json" \
-  -d '{"key_alias":"my-client","models":["claude-opus","claude-sonnet"],"max_budget":10}'
+python3 aionas-connect/aionas_connect.py scan
+python3 aionas-connect/aionas_connect.py plan
+
+export AIONAS_ENROLLMENT_TOKEN='aionas_enroll_...'
+python3 aionas-connect/aionas_connect.py setup \
+  --control-plane https://keys.example.com/api \
+  --provider anthropic \
+  --model claude-opus-4-8 \
+  --model-alias claude-opus
+
+python3 aionas-connect/aionas_connect.py verify
 ```
 
-Copy the returned `key` (`sk-...`). Spend and usage for it show in the Admin UI at
-`https://56.228.19.15.sslip.io/ui/` under Usage / Logs / Virtual Keys.
+The tool reads the provider key with a hidden prompt, sends it once to the control
+plane, and stores only virtual keys locally. It creates wrappers in `~/.local/bin`:
 
----
+- `claude-aionas`
+- `codex-aionas`
+- `openclaw-aionas`
 
-## 1. Simple UI app (like the one we built)
+`undo` restores local files. Server-side key revocation remains an administrator
+operation in LiteLLM.
 
-Any app that speaks the OpenAI API works — just change the base URL and key.
+## Protocol matrix
 
-**Option A - key stays server-side (recommended, what our `chat.<host>` UI does).**
-The browser posts to a same-origin path with no key; a proxy adds the key. In our
-setup Caddy does this (see `Caddyfile`): it rewrites `/api/chat` to
-`/v1/chat/completions` and injects `Authorization: Bearer <WEBCHAT_API_KEY>`. The
-browser code carries no secret:
+| Client | Gateway protocol | Base URL |
+| --- | --- | --- |
+| Claude Code | Anthropic Messages | `https://<gateway>` |
+| Codex | OpenAI Responses | `https://<gateway>/v1` |
+| OpenClaw | OpenAI Chat Completions | `https://<gateway>/v1` |
+| Cursor chat models | OpenAI Chat Completions | `https://<gateway>/v1` |
 
-```js
-const res = await fetch("/api/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    model: "claude-opus",
-    messages: [{ role: "user", content: question }],
-  }),
-});
-const data = await res.json();
-console.log(data.choices[0].message.content);
-```
+## Manual fallbacks
 
-**Option B - call the gateway directly from code (server/CLI).** Use the OpenAI SDK:
-
-```python
-from openai import OpenAI
-client = OpenAI(base_url="https://56.228.19.15.sslip.io/v1", api_key="<virtual-key>")
-resp = client.chat.completions.create(
-    model="claude-opus",
-    messages=[{"role": "user", "content": "hello"}],
-)
-print(resp.choices[0].message.content)
-```
-
-Do not embed a key directly in browser JavaScript — keep it behind a proxy (Option A)
-or in server-side code (Option B).
-
----
-
-## 2. Cursor
-
-Cursor can use an OpenAI-compatible endpoint.
-
-1. Open **Cursor Settings -> Models**.
-2. Under **API Keys**, expand **OpenAI API Key**:
-   - Paste your **virtual key** (`sk-...`) as the API key.
-   - Enable **Override OpenAI Base URL** and set it to:
-     `https://56.228.19.15.sslip.io/v1`
-3. Under **Models**, add a custom model whose name matches a gateway model exactly:
-   `claude-opus` (and/or `claude-sonnet`). Turn off models you are not routing.
-4. Click **Verify** / save. Cursor sends a test request to
-   `https://56.228.19.15.sslip.io/v1/chat/completions`.
-
-Notes:
-- The model name in Cursor must equal the `model_name` in the gateway `config.yaml`
-  (`claude-opus`, `claude-sonnet`).
-- The custom OpenAI endpoint drives chat. Some Cursor features (Tab, background agents)
-  are tied to Cursor's own models and will not route through the gateway.
-- **You need a virtual key** (Step 0) — Cursor requires an API key. Mint a dedicated
-  one (e.g. `key_alias: cursor`) so its spend is tracked and revocable on its own.
-- **The base-URL override is global to Cursor**, not per-project: it applies to every
-  workspace and replaces your normal Cursor model access until you turn it off. Toggle
-  it back off to return to standard Cursor models.
-
----
-
-## 3. Claude Code
-
-Claude Code speaks the Anthropic Messages API, which the gateway serves at
-`/v1/messages`. Point it at the gateway with environment variables:
+### Claude Code
 
 ```bash
-export ANTHROPIC_BASE_URL="https://56.228.19.15.sslip.io"
-export ANTHROPIC_AUTH_TOKEN="<virtual-key>"     # sent as: Authorization: Bearer <key>
-export ANTHROPIC_MODEL="claude-opus"            # main model (a gateway model_name)
-export ANTHROPIC_SMALL_FAST_MODEL="claude-sonnet"  # cheaper model for small tasks
-
+export ANTHROPIC_BASE_URL="https://<gateway>"
+export ANTHROPIC_AUTH_TOKEN="sk-<virtual-key>"
+export ANTHROPIC_MODEL="claude-opus"
 claude
 ```
 
-To make it persistent, add those `export` lines to your shell profile
-(`~/.zshrc` / `~/.bashrc`) or Claude Code's settings.
+### Codex
 
-Notes:
-- Use `ANTHROPIC_AUTH_TOKEN` (Bearer) for LiteLLM virtual keys. `ANTHROPIC_API_KEY`
-  (sent as `x-api-key`) also works if the gateway accepts it.
-- `ANTHROPIC_MODEL` / `ANTHROPIC_SMALL_FAST_MODEL` must match gateway `model_name`s.
-- Tool use / agentic features need capable models — Opus and Sonnet both support them.
+Use a separate `CODEX_HOME` or merge this provider into the user-level config:
 
----
+```toml
+model = "claude-opus"
+model_provider = "aionas"
 
-## 4. OpenClaw
+[model_providers.aionas]
+name = "Aionas LiteLLM"
+base_url = "https://<gateway>/v1"
+wire_api = "responses"
 
-OpenClaw has first-class LiteLLM support — the gateway plugs in as a native
-provider. Mint a dedicated virtual key (Step 0, e.g. `key_alias: openclaw`), then
-either onboard via CLI:
-
-```bash
-openclaw onboard --non-interactive --auth-choice litellm-api-key \
-  --litellm-api-key "sk-<virtual-key>" \
-  --custom-base-url "https://56.228.19.15.sslip.io/v1"
+[model_providers.aionas.auth]
+command = "/absolute/path/to/aionas-key-helper"
+args = []
+refresh_interval_ms = 0
 ```
 
-…or add the provider to `~/.openclaw/openclaw.json` (hot-reloaded, no restart):
+The helper prints the virtual key to stdout. `aionas-connect` creates it against
+macOS Keychain, Linux Secret Service, or the protected fallback store.
 
-```json5
+### OpenClaw
+
+```json
 {
   "models": {
-    "mode": "merge",                       // required — don't clobber built-in providers
+    "mode": "merge",
     "providers": {
       "litellm": {
-        "baseUrl": "https://56.228.19.15.sslip.io/v1",
-        "apiKey": "${LITELLM_API_KEY}",    // or paste the virtual key
-        "api": "openai-completions",       // required
-        "models": [
-          { "id": "claude-opus",   "name": "Claude Opus (gateway)",
-            "reasoning": true, "input": ["text", "image"],
-            "contextWindow": 200000, "maxTokens": 64000 },
-          { "id": "claude-sonnet", "name": "Claude Sonnet (gateway)",
-            "reasoning": true, "input": ["text", "image"],
-            "contextWindow": 200000, "maxTokens": 64000 }
-        ]
+        "baseUrl": "https://<gateway>/v1",
+        "apiKey": "${LITELLM_API_KEY}",
+        "api": "openai-completions",
+        "models": [{ "id": "claude-opus", "name": "Claude Opus (Aionas)" }]
       }
     }
   },
@@ -168,35 +92,20 @@ openclaw onboard --non-interactive --auth-choice litellm-api-key \
 }
 ```
 
-Gotchas (all three produce confusing errors if missed):
-- **`"api": "openai-completions"` is mandatory** — without it OpenClaw fails with
-  `No API provider registered for api: undefined`.
-- **`"mode": "merge"` is required** — otherwise this block replaces OpenClaw's whole
-  built-in provider catalog.
-- **Model `id`s must equal gateway `model_name`s** (`claude-opus`, `claude-sonnet`,
-  or a tenant model like `ibm-opus`), and references always use the provider prefix:
-  `litellm/claude-opus`.
+Both `"mode": "merge"` and `"api": "openai-completions"` are required.
 
-Per-tenant setup: give the customer's OpenClaw their scoped virtual key and their
-tenant model id (e.g. `"id": "ibm-opus"`, primary `litellm/ibm-opus`) — their agent
-traffic then bills to their own provider account and is tracked under their key.
+### Cursor
 
----
+Open Cursor Settings → Models → API Keys, enter the Cursor-specific virtual key,
+enable the OpenAI base URL override, and use `https://<gateway>/v1`. Add the exact
+model alias returned during enrollment. Cursor's Tab and some hosted features do
+not use the custom OpenAI endpoint.
 
-## Verify any client
+## No-spend verification
 
 ```bash
-# OpenAI shape
-curl https://56.228.19.15.sslip.io/v1/chat/completions \
-  -H "Authorization: Bearer <virtual-key>" -H "Content-Type: application/json" \
-  -d '{"model":"claude-opus","messages":[{"role":"user","content":"ping"}]}'
-
-# Anthropic shape (Claude Code)
-curl https://56.228.19.15.sslip.io/v1/messages \
-  -H "Authorization: Bearer <virtual-key>" \
-  -H "anthropic-version: 2023-06-01" -H "Content-Type: application/json" \
-  -d '{"model":"claude-opus","max_tokens":50,"messages":[{"role":"user","content":"ping"}]}'
+curl https://<gateway>/v1/models \
+  -H "Authorization: Bearer sk-<virtual-key>"
 ```
 
-Then confirm the calls appear in the Admin UI under **Logs** / **Usage**, attributed
-to your virtual key.
+Protocol-level live checks consume provider tokens and should be run explicitly.

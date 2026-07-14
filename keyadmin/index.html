@@ -112,8 +112,8 @@
   <header>
     <img src="/aionas-logo.png" alt="" onerror="this.style.display='none'" />
     <div>
-      <h1>Tenant provider keys</h1>
-      <p>Store a customer's API key, then apply to publish <code>&lt;tenant&gt;-&lt;alias&gt;</code> on the gateway.</p>
+      <h1>Dynamic BYOK enrollments</h1>
+      <p>Provision a personal provider key and scoped client keys. Models become live immediately.</p>
     </div>
     <div class="spacer"></div>
     <button class="subtle" id="logoutBtn">Sign out</button>
@@ -121,7 +121,7 @@
 
   <div class="grid">
     <div class="card">
-      <h2>Add / rotate a key</h2>
+      <h2>Add / rotate a credential</h2>
       <form id="keyForm">
         <div class="row">
           <div>
@@ -129,8 +129,18 @@
             <input id="tenant" required pattern="[a-z0-9][a-z0-9-]{0,62}" placeholder="ibm" />
           </div>
           <div>
-            <label for="alias">Alias</label>
-            <input id="alias" required pattern="[a-z0-9][a-z0-9-]{0,62}" placeholder="opus" />
+            <label for="userId">User ID</label>
+            <input id="userId" required pattern="[A-Za-z0-9._:@-]{1,128}" placeholder="tamar" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="credentialId">Credential ID</label>
+            <input id="credentialId" required pattern="[a-z0-9][a-z0-9._-]*" value="personal" />
+          </div>
+          <div>
+            <label for="alias">Client model alias</label>
+            <input id="alias" required pattern="[a-z0-9][a-z0-9._-]*" placeholder="claude-opus" />
           </div>
         </div>
         <div class="row">
@@ -149,6 +159,13 @@
         </div>
         <label for="apiKey">API key</label>
         <input id="apiKey" type="password" required minlength="8" placeholder="sk-..." autocomplete="off" />
+        <label for="clients">Create a virtual key for</label>
+        <select id="clients" multiple size="4">
+          <option value="claude-code" selected>Claude Code</option>
+          <option value="codex" selected>Codex</option>
+          <option value="openclaw" selected>OpenClaw</option>
+          <option value="cursor">Cursor</option>
+        </select>
         <div class="row">
           <div>
             <label for="region">Region <span>(bedrock)</span></label>
@@ -159,26 +176,25 @@
             <input id="apiBase" placeholder="https://..." />
           </div>
         </div>
-        <button type="submit" class="primary">Save key</button>
+        <button type="submit" class="primary">Provision now</button>
       </form>
       <p class="hint">
-        Keys go straight to AWS Secrets Manager — they are never shown again after saving.
-        Changes only reach the gateway when you press <b>Apply config</b> (≈40s restart).
+        Provider credentials are encrypted in LiteLLM's database. Client keys are shown once.
+        No config generation or gateway restart is required.
       </p>
     </div>
 
     <div class="card">
-      <h2>Stored keys</h2>
+      <h2>Managed models</h2>
       <div class="toolbar">
         <button class="subtle" id="refreshBtn">Refresh</button>
-        <button class="subtle" id="previewBtn">Preview config</button>
-        <button class="primary" style="width:auto;margin:0" id="applyBtn">Apply config</button>
+        <button class="primary" style="width:auto;margin:0" id="tokenBtn">Create setup token</button>
       </div>
       <table>
-        <thead><tr><th>Gateway model</th><th>Upstream</th><th>Updated</th><th></th></tr></thead>
+        <thead><tr><th>Client model</th><th>Upstream</th><th>Owner</th><th></th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
-      <div id="empty" class="empty" style="display:none">No tenant keys stored yet.</div>
+      <div id="empty" class="empty" style="display:none">No managed models yet.</div>
     </div>
   </div>
 </div>
@@ -278,9 +294,20 @@
     return $("model").value === CUSTOM ? $("customModel").value.trim() : $("model").value;
   }
 
-  // ── Keys table ───────────────────────────────────────────────────────
+  function showOneTime(title, value) {
+    const w = window.open("", "_blank");
+    if (!w) { toast("Popup blocked; allow popups to view the one-time value.", false); return; }
+    w.opener = null;
+    w.document.title = title;
+    const pre = w.document.createElement("pre");
+    pre.style.cssText = "font:13px/1.5 monospace;padding:20px;white-space:pre-wrap;word-break:break-all";
+    pre.textContent = value;
+    w.document.body.appendChild(pre);
+  }
+
+  // ── Managed-model table ──────────────────────────────────────────────
   async function loadKeys() {
-    const res = guard(await api("/tenant-keys?page=1&limit=100"));
+    const res = guard(await api("/admin/enrollments/models"));
     if (!res.ok) { toast(`Failed to list keys (${res.status})`, false); return; }
     const { data } = await res.json();
     const rows = $("rows");
@@ -288,21 +315,28 @@
     $("empty").style.display = data.length ? "none" : "block";
     for (const k of data) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><span class="model-chip">${k.tenant}-${k.alias}</span></td>
-        <td>${k.provider}/${k.model}</td>
-        <td>${new Date(k.updatedAt).toLocaleString()}</td>
-        <td style="text-align:right"></td>`;
+      const modelCell = document.createElement("td");
+      const chip = document.createElement("span");
+      chip.className = "model-chip";
+      chip.textContent = k.modelAlias;
+      modelCell.appendChild(chip);
+      const upstreamCell = document.createElement("td");
+      upstreamCell.textContent = `${k.provider}/${k.model}`;
+      const ownerCell = document.createElement("td");
+      ownerCell.textContent = `${k.tenantId}/${k.userId}`;
+      const actionCell = document.createElement("td");
+      actionCell.style.textAlign = "right";
+      tr.append(modelCell, upstreamCell, ownerCell, actionCell);
       const del = document.createElement("button");
       del.className = "danger";
       del.textContent = "Delete";
       del.onclick = async () => {
-        if (!confirm(`Delete key for ${k.tenant}-${k.alias}?`)) return;
-        const r = guard(await api(`/tenant-keys/${k.tenant}/${k.alias}`, { method: "DELETE" }));
-        toast(r.status === 204 ? "Deleted. Press Apply config to publish." : `Delete failed (${r.status})`, r.status === 204);
+        if (!confirm(`Delete managed model ${k.modelAlias} for ${k.tenantId}/${k.userId}?`)) return;
+        const r = guard(await api(`/admin/enrollments/models/${encodeURIComponent(k.modelId)}`, { method: "DELETE" }));
+        toast(r.status === 204 ? "Deleted immediately." : `Delete failed (${r.status})`, r.status === 204);
         loadKeys();
       };
-      tr.lastElementChild.appendChild(del);
+      actionCell.appendChild(del);
       rows.appendChild(tr);
     }
   }
@@ -313,15 +347,23 @@
     const v = (id) => $(id).value.trim();
     const model = selectedModel();
     if (!model) { toast("Enter a model id.", false); return; }
-    const body = { provider: v("provider"), model, apiKey: v("apiKey") };
-    if (v("region")) body.region = v("region");
-    if (v("apiBase")) body.apiBase = v("apiBase");
-    const res = guard(await api(`/tenant-keys/${v("tenant")}/${v("alias")}`, {
-      method: "PUT",
-      body: JSON.stringify(body),
+    const selectedClients = Array.from($("clients").selectedOptions).map((o) => ({ clientId: o.value, duration: "90d" }));
+    if (!selectedClients.length) { toast("Select at least one client.", false); return; }
+    const enrollment = {
+      credentialId: v("credentialId"), provider: v("provider"), model,
+      modelAlias: v("alias"), apiKey: v("apiKey"), deviceId: "keyadmin-ui",
+      clients: selectedClients,
+    };
+    if (v("region")) enrollment.region = v("region");
+    if (v("apiBase")) enrollment.apiBase = v("apiBase");
+    const res = guard(await api("/admin/enrollments", {
+      method: "POST",
+      body: JSON.stringify({ tenantId: v("tenant"), userId: v("userId"), enrollment }),
     }));
     if (res.ok) {
-      toast(`Saved ${v("tenant")}-${v("alias")}. Press Apply config to publish.`);
+      const result = await res.json();
+      toast(`Provisioned ${v("alias")} — live immediately.`);
+      showOneTime("One-time client keys", result.clients.map((c) => `${c.clientId}: ${c.virtualKey}`).join("\n"));
       $("apiKey").value = "";
       loadKeys();
     } else {
@@ -332,25 +374,20 @@
 
   $("refreshBtn").onclick = loadKeys;
 
-  $("previewBtn").onclick = async () => {
-    const res = guard(await api("/config/preview"));
-    if (!res.ok) { toast(`Preview failed (${res.status})`, false); return; }
-    const text = await res.text();
-    const w = window.open("", "_blank");
-    w.document.write(`<pre style="font: 13px/1.5 monospace; padding: 20px; white-space: pre-wrap;">${
-      text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`);
-    w.document.title = "config preview";
-  };
-
-  $("applyBtn").onclick = async () => {
-    if (!confirm("Apply config now? The gateway restarts (~40s) and briefly drops in-flight requests.")) return;
-    toast("Applying — regenerating config and restarting the gateway…");
-    const res = guard(await api("/config/apply", { method: "POST" }));
+  $("tokenBtn").onclick = async () => {
+    const tenantId = $("tenant").value.trim();
+    const userId = $("userId").value.trim();
+    if (!tenantId || !userId) { toast("Enter tenant and user ID first.", false); return; }
+    const res = guard(await api("/admin/enrollments/tokens", {
+      method: "POST",
+      body: JSON.stringify({ tenantId, userId, expiresInMinutes: 15 }),
+    }));
     if (res.ok) {
-      const r = await res.json();
-      toast(`Applied: ${r.tenantModels} tenant model(s) live after restart.`);
+      const result = await res.json();
+      showOneTime("Aionas setup token", `${result.token}\n\nExpires: ${result.expiresAt}`);
+      toast("Setup token created. It expires in 15 minutes.");
     } else {
-      toast(`Apply failed (${res.status})`, false);
+      toast(`Token creation failed (${res.status})`, false);
     }
   };
 

@@ -1,23 +1,20 @@
 {
   "name": "key-manager",
   "version": "1.0.0",
-  "description": "Secured microservice managing per-tenant provider keys in AWS Secrets Manager and regenerating the LiteLLM config",
+  "description": "Dynamic per-user BYOK enrollment control plane for LiteLLM",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "apply": "node dist/cli/apply.js",
     "test": "vitest run",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.600.0",
     "express": "^5.1.0",
     "pino": "^9.0.0",
-    "yaml": "^2.4.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

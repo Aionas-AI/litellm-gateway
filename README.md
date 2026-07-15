@@ -53,6 +53,11 @@ Upgrading an existing v1.91 box? Follow the phased runbook in
 [MIGRATION.md](MIGRATION.md) — it covers backups, the salt-key rule, smoke tests
 (including the alias-guard fail-closed check), cleanup, and rollback.
 
+Wondering whether a customer's Claude/ChatGPT/Gemini/Copilot *subscription* can
+be routed through the gateway instead of an API key? See
+[SUBSCRIPTIONS.md](SUBSCRIPTIONS.md) for a provider-by-provider comparison of
+subscription tiers, credential types, and which LiteLLM auth methods work.
+
 ## Continuous deployment
 
 Every push to `master` (and manual runs via the Actions tab) triggers

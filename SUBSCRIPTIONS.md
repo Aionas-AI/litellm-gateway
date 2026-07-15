@@ -191,7 +191,53 @@ manage at all. Caveats: Copilot's terms intend the API for Copilot clients
 the vendor has not blocked. Fine for internal seats; for customer-facing
 resale the per-seat licensing terms still make API keys the safer product.**
 
-### 2.6 xAI (Grok), Mistral, DeepSeek, Azure, Bedrock — quick reference
+### 2.6 AWS Bedrock
+
+**No subscriptions — pure usage billing, two pricing models:**
+
+| Pricing model | How it bills | When it makes sense |
+|---------------|-------------|---------------------|
+| **On-demand** | Per token (e.g. Claude Sonnet-class ~$3/$15 per M tokens; exact rates per model/region) | Default; what our shared models use today |
+| **Provisioned Throughput** | Hourly per Model Unit, 1- or 6-month commitments (e.g. Sonnet-class ~$39/hr per MU) | Sustained high volume needing guaranteed throughput; billed whether used or not |
+
+Batch inference gets discounted rates, and the newer `bedrock-mantle`
+OpenAI-compatible endpoint has token-based rather than request-based quotas.
+
+**Which credentials exist — three distinct options:**
+
+1. **IAM SigV4** — role- or user-based AWS credentials, no key material on the
+   wire. Our EC2 instance role uses this for the shared `claude-sonnet` /
+   `claude-opus` models (method **E**). The gold standard when the gateway
+   runs inside AWS.
+2. **IAM access key pair** — a per-tenant `aws_access_key_id` +
+   `aws_secret_access_key` (+ region). Works with our enrollment (**A**) and
+   with `extra_body` (**C**) via LiteLLM's `aws_*` params; this is how a
+   customer bills Bedrock usage to *their own* AWS account through the
+   gateway.
+3. **Bedrock API keys** (bearer tokens) — newer option, two kinds:
+   - **Short-term** — valid ≤12 hours (or session lifetime), inherits the
+     generating IAM principal's permissions, region-bound. AWS recommends
+     these for production; the `aws-bedrock-token-generator` package
+     auto-refreshes them from normal AWS credentials.
+   - **Long-term** — configurable expiry, backed by an auto-created IAM user.
+     AWS explicitly recommends these **for exploration only**. Admins can cap
+     their lifetime (`iam:ServiceSpecificCredentialAgeDays`) and gate usage
+     with `bedrock:CallWithBearerToken`.
+
+**LiteLLM support:** first-class `bedrock/` provider with SigV4 (env/role
+credentials or per-model `aws_*` params) and bearer-token support via
+`AWS_BEARER_TOKEN_BEDROCK` / `api_key`. Header forwarding (**B**) is not
+applicable — bearer tokens ride `Authorization`, which collides with the
+virtual key.
+
+**Verdict for our BYOK enrollment:** prefer a per-tenant **IAM access key
+pair** scoped to `bedrock:InvokeModel*` (stable, revocable, no expiry
+surprises). A long-term Bedrock API key also works and is simpler for the
+customer to create, but AWS discourages it for production and it hides an IAM
+user underneath. Short-term keys don't fit server-side storage — they expire
+within 12 hours and our enrollment has no refresh loop for them.
+
+### 2.7 xAI (Grok), Mistral, DeepSeek, Azure — quick reference
 
 | Provider | Subscriptions | Do they include API? | Gateway path |
 |----------|--------------|---------------------|--------------|
@@ -199,7 +245,6 @@ resale the per-seat licensing terms still make API keys the safer product.**
 | **Mistral** | Le Chat Free/Pro/Team/Enterprise | No — API is separate (La Plateforme keys) | Server-side key (A) |
 | **DeepSeek** | none | n/a — API keys, pay-as-you-go | Server-side key (A) |
 | **Azure OpenAI** | PTU / pay-as-you-go (not a "subscription" in the consumer sense) | Yes by design | A; B works (`api-key`, `ocp-apim-subscription-key` are forwardable); Entra ID via E |
-| **AWS Bedrock** | none — pure usage billing | Yes by design | E (SigV4 instance role — our shared models today), or per-tenant AWS keys via A/C |
 
 ---
 
@@ -264,7 +309,7 @@ Legend: ✅ works & supported · ⚠️ technically possible but unofficial/frag
    | xAI | Console API key | subscription irrelevant |
    | Mistral / DeepSeek | La Plateforme / platform key | subscription irrelevant |
    | Azure OpenAI | deployment key or Entra ID | region + deployment name needed |
-   | AWS Bedrock | IAM access key pair or role | our shared models already use the instance role |
+   | AWS Bedrock | IAM access key pair (preferred) or long-term Bedrock API key | short-term API keys expire ≤12h — unusable server-side; see §2.6 |
 
 6. **Watch list.** LiteLLM's server-managed subscription providers PR (#29390:
    `claude_max/`, `antigravity/`) would centralize OAuth token refresh in the
@@ -283,4 +328,5 @@ Legend: ✅ works & supported · ⚠️ technically possible but unofficial/frag
 - Meta Model API: [dev.meta.ai/docs](https://dev.meta.ai/docs/getting-started/overview/)
 - GitHub Copilot: [plans](https://docs.github.com/en/copilot/get-started/plans), [usage-based billing](https://github.blog/news-insights/company-news/github-copilot-is-moving-to-usage-based-billing/)
 - xAI: [docs.x.ai pricing](https://docs.x.ai/developers/pricing)
+- AWS Bedrock: [API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html), [API-key permissions](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-permissions.html), [Bedrock pricing](https://aws.amazon.com/bedrock/pricing/)
 - LiteLLM: [github_copilot provider](https://docs.litellm.ai/docs/providers/github_copilot), [chatgpt provider](https://docs.litellm.ai/docs/providers/chatgpt), [header forwarding / BYOK](https://docs.litellm.ai/docs/proxy/forward_client_headers), [clientside credentials](https://docs.litellm.ai/docs/proxy/clientside_auth), PRs [#19453](https://github.com/BerriAI/litellm/pull/19453), [#23933](https://github.com/BerriAI/litellm/pull/23933), [#25921](https://github.com/BerriAI/litellm/pull/25921), [#29390](https://github.com/BerriAI/litellm/pull/29390)
